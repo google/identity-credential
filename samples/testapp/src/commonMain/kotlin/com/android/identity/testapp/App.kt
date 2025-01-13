@@ -25,9 +25,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navDeepLink
 import com.android.identity.appsupport.ui.AppTheme
-import com.android.identity.testapp.presentation.PresentationModel
+import com.android.identity.appsupport.ui.digitalcredentials.DigitalCredentials
+import com.android.identity.appsupport.ui.presentment.PresentmentModel
 import com.android.identity.secure_area_test_app.ui.CloudSecureAreaScreen
 import com.android.identity.testapp.ui.AboutScreen
 import com.android.identity.testapp.ui.AndroidKeystoreSecureAreaScreen
@@ -38,7 +38,7 @@ import com.android.identity.testapp.ui.IsoMdocProximityReadingScreen
 import com.android.identity.testapp.ui.IsoMdocProximitySharingScreen
 import com.android.identity.testapp.ui.NfcScreen
 import com.android.identity.testapp.ui.PassphraseEntryFieldScreen
-import com.android.identity.testapp.ui.PresentationScreen
+import com.android.identity.testapp.ui.PresentmentScreen
 import com.android.identity.testapp.ui.ProvisioningTestScreen
 import com.android.identity.testapp.ui.QrCodesScreen
 import com.android.identity.testapp.ui.SecureEnclaveSecureAreaScreen
@@ -49,7 +49,9 @@ import identitycredential.samples.testapp.generated.resources.Res
 import identitycredential.samples.testapp.generated.resources.back_button
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -57,13 +59,29 @@ class App() {
 
     companion object {
         private const val TAG = "App"
+
+        // TODO: remove when SettingsModel gains persistence
+        val settingsModel = TestAppSettingsModel()
     }
 
     private lateinit var snackbarHostState: SnackbarHostState
 
+    private val presentmentModel = PresentmentModel()
+
     @Composable
     @Preview
     fun Content(navController: NavHostController = rememberNavController()) {
+
+        // Make our credentials available via the W3C Digital Credentials API on the platform.
+        //
+        CoroutineScope(Dispatchers.IO).launch {
+            if (DigitalCredentials.Default.available) {
+                DigitalCredentials.Default.startExportingCredentials(
+                    documentStore = TestAppUtils.documentStore,
+                    documentTypeRepository = TestAppUtils.documentTypeRepository,
+                )
+            }
+        }
 
         val backStackEntry by navController.currentBackStackEntryAsState()
         val routeWithoutArgs = backStackEntry?.destination?.route?.substringBefore('/')
@@ -171,15 +189,17 @@ class App() {
                     }
                     composable(route = IsoMdocProximitySharingDestination.route) {
                         IsoMdocProximitySharingScreen(
-                            presentationModel = PresentationModel.getInstance(),
-                            onNavigateToPresentationScreen = { allowMultipleRequests ->
-                                navController.navigate(PresentationDestination.route + "/$allowMultipleRequests")
+                            presentmentModel = presentmentModel,
+                            settingsModel = settingsModel,
+                            onNavigateToPresentmentScreen = {
+                                navController.navigate(PresentmentDestination.route)
                             },
                             showToast = { message -> showToast(message) },
                         )
                     }
                     composable(route = IsoMdocProximityReadingDestination.route) {
                         IsoMdocProximityReadingScreen(
+                            settingsModel = settingsModel,
                             showToast = { message -> showToast(message) }
                         )
                     }
@@ -188,18 +208,11 @@ class App() {
                             showToast = { message -> showToast(message) }
                         )
                     }
-                    composable(
-                        route = PresentationDestination.routeWithArgs,
-                        arguments = PresentationDestination.arguments,
-                    ) { navBackStackEntry ->
-                        val allowMultipleRequests = navBackStackEntry.arguments?.getBoolean(
-                            PresentationDestination.allowMultipleRequests
-                        ) ?: false
-                        PresentationScreen(
-                            presentationModel = PresentationModel.getInstance(),
-                            allowMultipleRequests = allowMultipleRequests,
+                    composable(route = PresentmentDestination.route) {
+                        PresentmentScreen(
+                            presentmentModel = presentmentModel,
+                            settingsModel = settingsModel,
                             onPresentationComplete = { navController.popBackStack() },
-                            showToast = { message -> showToast(message) }
                         )
                     }
                 }

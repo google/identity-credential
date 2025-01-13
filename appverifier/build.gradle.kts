@@ -1,3 +1,5 @@
+import org.gradle.kotlin.dsl.credentials
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.compose.compiler)
@@ -88,8 +90,7 @@ dependencies {
     implementation(libs.kotlinx.io.core)
     implementation(libs.cbor)
 
-    implementation(files("../third-party/play-services-identity-credentials-0.0.1-eap01.aar"))
-    implementation(libs.bundles.google.play.services)
+    implementation(libs.play.services.identity.credentials)
 
     implementation(libs.bouncy.castle.bcprov)
     implementation(libs.bouncy.castle.bcpkix)

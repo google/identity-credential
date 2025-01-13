@@ -8,7 +8,7 @@ package com.android.identity.documenttype
  * [SD-JWT-based Verifiable Credentials (SD-JWT VC)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-sd-jwt-vc-05)
  * @param claimsToRequest the claims to request.
  */
-data class VcRequest(
+data class VcCannedRequest(
     val vct: String,
     val claimsToRequest: List<DocumentAttribute>
 )

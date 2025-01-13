@@ -42,7 +42,7 @@ class CredentialRequestServlet : BaseServlet() {
             storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
             val pidPublicKey = (state.pidReadingKey!!.publicKey as EcPublicKeyDoubleCoordinate)
                 .asUncompressedPointEncoding.toBase64Url()
-            val fullPid = EUPersonalID.getDocumentType().sampleRequests.first { it.id == "full" }
+            val fullPid = EUPersonalID.getDocumentType().cannedRequests.first { it.id == "full" }
             // Request for "preview" protocol
             val previewRequest = buildJsonObject {
                 put("selector", buildJsonObject {

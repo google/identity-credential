@@ -22,9 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.android.identity.android.mdoc.util.CredmanUtil
 import com.android.identity.appsupport.ui.consent.ConsentDocument
-import com.android.identity.appsupport.ui.consent.ConsentField
-import com.android.identity.appsupport.ui.consent.ConsentRelyingParty
-import com.android.identity.appsupport.ui.consent.MdocConsentField
+import com.android.identity.request.Claim
+import com.android.identity.request.Requester
 import com.android.identity.credential.Credential
 import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.Crypto
@@ -51,6 +50,9 @@ import com.android.identity.issuance.evidence.EvidenceResponseSetupCloudSecureAr
 import com.android.identity.issuance.remote.WalletServerProvider
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.response.DeviceResponseGenerator
+import com.android.identity.mdoc.util.MdocUtil
+import com.android.identity.request.MdocClaim
+import com.android.identity.request.MdocRequest
 import com.android.identity.securearea.SecureAreaRepository
 import com.android.identity.trustmanagement.TrustPoint
 import com.android.identity.util.Constants
@@ -405,7 +407,7 @@ suspend fun openid4VpPresentation(
             .add(Pair(name, intentToRetain))
     }
 
-    val consentFields = MdocConsentField.generateConsentFields(
+    val claims = MdocUtil.generateClaims(
         docType,
         requestedData,
         walletApp.documentTypeRepository,
@@ -421,7 +423,7 @@ suspend fun openid4VpPresentation(
     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
         fragmentActivity,
         credential,
-        consentFields,
+        claims,
         null,
         originUri,
         encodedSessionTranscript
@@ -482,20 +484,25 @@ private fun maybeEncryptJwtResponse(
 private suspend fun showPresentmentFlowAndGetDeviceResponse(
     fragmentActivity: FragmentActivity,
     mdocCredential: MdocCredential,
-    consentFields: List<ConsentField>,
+    claims: List<Claim>,
     trustPoint: TrustPoint?,
     websiteOrigin: String?,
     encodedSessionTranscript: ByteArray,
 ): ByteArray {
+    val request = MdocRequest(
+        requester = Requester(websiteOrigin = websiteOrigin),
+        claims = claims as List<MdocClaim>,
+        docType = mdocCredential.docType
+    )
     val documentCborBytes = showMdocPresentmentFlow(
         activity = fragmentActivity,
-        consentFields = consentFields,
+        request = request,
+        trustPoint = trustPoint,
         document = ConsentDocument(
             name = mdocCredential.document.documentConfiguration.displayName,
             description = mdocCredential.document.documentConfiguration.typeDisplayName,
             cardArt = mdocCredential.document.documentConfiguration.cardArt,
         ),
-        relyingParty = ConsentRelyingParty(trustPoint, websiteOrigin),
         credential = mdocCredential,
         encodedSessionTranscript = encodedSessionTranscript,
     )

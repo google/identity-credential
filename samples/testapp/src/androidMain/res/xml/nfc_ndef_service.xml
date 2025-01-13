@@ -2,7 +2,8 @@
 
 <host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/nfc_ndef_service_description"
-    android:requireDeviceUnlock="true">
+    android:requireDeviceUnlock="false"
+    android:requireDeviceScreenOn="false">
 
     <aid-group android:description="@string/nfc_ndef_service_aid_group_description" android:category="other">
         <!-- NFC Type 4 Tag -->

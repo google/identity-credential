@@ -1,13 +1,12 @@
 package com.android.identity.testapp
 
-import com.android.identity.appsupport.ui.consent.MdocConsentField
 import com.android.identity.asn1.ASN1Integer
 import com.android.identity.cbor.Bstr
 import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.CborArray
 import com.android.identity.cbor.DataItem
-import com.android.identity.cbor.Simple
 import com.android.identity.cbor.Tagged
+import com.android.identity.cbor.Tstr
 import com.android.identity.cbor.toDataItem
 import com.android.identity.cose.Cose
 import com.android.identity.cose.CoseLabel
@@ -21,20 +20,18 @@ import com.android.identity.crypto.EcPublicKey
 import com.android.identity.crypto.X500Name
 import com.android.identity.crypto.X509Cert
 import com.android.identity.crypto.X509CertChain
-import com.android.identity.crypto.X509KeyUsage
 import com.android.identity.document.DocumentStore
 import com.android.identity.document.NameSpacedData
+import com.android.identity.documenttype.DocumentType
 import com.android.identity.documenttype.DocumentTypeRepository
-import com.android.identity.documenttype.DocumentWellKnownRequest
+import com.android.identity.documenttype.DocumentCannedRequest
 import com.android.identity.documenttype.knowntypes.DrivingLicense
+import com.android.identity.documenttype.knowntypes.EUPersonalID
+import com.android.identity.documenttype.knowntypes.PhotoID
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.mso.MobileSecurityObjectGenerator
-import com.android.identity.mdoc.mso.MobileSecurityObjectParser
 import com.android.identity.mdoc.mso.StaticAuthDataGenerator
-import com.android.identity.mdoc.mso.StaticAuthDataParser
 import com.android.identity.mdoc.request.DeviceRequestGenerator
-import com.android.identity.mdoc.response.DeviceResponseGenerator
-import com.android.identity.mdoc.response.DocumentGenerator
 import com.android.identity.mdoc.util.MdocUtil
 import com.android.identity.securearea.KeyPurpose
 import com.android.identity.securearea.SecureArea
@@ -45,7 +42,6 @@ import com.android.identity.storage.EphemeralStorageEngine
 import com.android.identity.storage.StorageEngine
 import com.android.identity.trustmanagement.TrustManager
 import com.android.identity.trustmanagement.TrustPoint
-import com.android.identity.util.Constants
 import com.android.identity.util.Logger
 import identitycredential.samples.testapp.generated.resources.Res
 import identitycredential.samples.testapp.generated.resources.driving_license_card_art
@@ -66,8 +62,10 @@ import kotlin.time.Duration.Companion.hours
 object TestAppUtils {
     private const val TAG = "TestAppUtils"
 
+    const val MDOC_AUTH_KEY_DOMAIN = "mdoc_auth_key_domain"
+
     fun generateEncodedDeviceRequest(
-        request: DocumentWellKnownRequest,
+        request: DocumentCannedRequest,
         encodedSessionTranscript: ByteArray
     ): ByteArray {
         val mdocRequest = request.mdocRequest!!
@@ -107,58 +105,20 @@ object TestAppUtils {
         )
     }
 
-    /*
-    fun generateEncodedDeviceResponse(
-        consentFields: List<MdocConsentField>,
-        encodedSessionTranscript: ByteArray
-    ): ByteArray {
-        val nsAndDataElements = mutableMapOf<String, MutableList<String>>()
-        consentFields.forEach {
-            nsAndDataElements.getOrPut(it.namespaceName, { mutableListOf() }).add(it.dataElementName)
-        }
-
-        val staticAuthData = StaticAuthDataParser(mdocCredential.issuerProvidedData).parse()
-
-        val mergedIssuerNamespaces = MdocUtil.mergeIssuerNamesSpaces(
-            nsAndDataElements,
-            documentData,
-            staticAuthData
-        )
-        val issuerAuthCoseSign1 = Cbor.decode(staticAuthData.issuerAuth).asCoseSign1
-        val encodedMsoBytes = Cbor.decode(issuerAuthCoseSign1.payload!!)
-        val encodedMso = Cbor.encode(encodedMsoBytes.asTaggedEncodedCbor)
-        val mso = MobileSecurityObjectParser(encodedMso).parse()
-
-        val documentGenerator = DocumentGenerator(
-            mso.docType,
-            staticAuthData.issuerAuth,
-            encodedSessionTranscript,
-        )
-        documentGenerator.setIssuerNamespaces(mergedIssuerNamespaces)
-
-        documentGenerator.setDeviceNamespacesSignature(
-            NameSpacedData.Builder().build(),
-            mdocCredential.secureArea,
-            mdocCredential.alias,
-            null,
-            Algorithm.ES256,
-        )
-
-        val deviceResponseGenerator = DeviceResponseGenerator(Constants.DEVICE_RESPONSE_STATUS_OK)
-        deviceResponseGenerator.addDocument(documentGenerator.generate())
-        return deviceResponseGenerator.generate()
-    }
-
-     */
-
     private lateinit var documentData: NameSpacedData
     lateinit var documentStore: DocumentStore
 
-    private lateinit var storageEngine: StorageEngine
-    private lateinit var secureArea: SecureArea
-    private lateinit var secureAreaRepository: SecureAreaRepository
-    private lateinit var credentialFactory: CredentialFactory
-    lateinit var documentTypeRepository: DocumentTypeRepository
+    private val storageEngine: StorageEngine
+    private val secureArea: SecureArea
+    private val secureAreaRepository: SecureAreaRepository
+    private val credentialFactory: CredentialFactory
+    val documentTypeRepository: DocumentTypeRepository
+
+    val provisionedDocumentTypes = listOf(
+        DrivingLicense.getDocumentType(),
+        PhotoID.getDocumentType(),
+        EUPersonalID.getDocumentType()
+    )
 
     private val certsValidFrom = LocalDate.parse("2024-12-01").atStartOfDayIn(TimeZone.UTC)
     private val certsValidUntil = LocalDate.parse("2034-12-01").atStartOfDayIn(TimeZone.UTC)
@@ -193,9 +153,11 @@ object TestAppUtils {
         }
         generateKeysAndCerts()
         generateTrustManagers()
-        provisionDocument()
+        provisionDocuments()
         documentTypeRepository = DocumentTypeRepository()
         documentTypeRepository.addDocumentType(DrivingLicense.getDocumentType())
+        documentTypeRepository.addDocumentType(PhotoID.getDocumentType())
+        documentTypeRepository.addDocumentType(EUPersonalID.getDocumentType())
     }
 
     private fun generateKeysAndCerts() {
@@ -305,25 +267,60 @@ object TestAppUtils {
         )
     }
 
-    @OptIn(ExperimentalResourceApi::class)
-    private fun provisionDocument() {
+    private fun provisionDocuments() {
         documentStore = DocumentStore(
             storageEngine,
             secureAreaRepository,
             credentialFactory
         )
 
-        // Create the document...
-        val document = documentStore.createDocument(
-            "testDrivingLicenseDocument"
+        provisionDocument(
+            "testDrivingLicense",
+            DrivingLicense.getDocumentType(),
+            "Erika",
+            "Erika's Driving License"
         )
+        // Create two PhotoID instances
+        provisionDocument(
+            "testPhotoID",
+            PhotoID.getDocumentType(),
+            "Erika",
+            "Erika's Photo ID"
+        )
+        provisionDocument(
+            "testPhotoID2",
+            PhotoID.getDocumentType(),
+            "Erika #2",
+            "Erika's Photo ID #2"
+        )
+        provisionDocument(
+            "testEUPersonalID",
+            EUPersonalID.getDocumentType(),
+            "Erika",
+            "Erika's Personal ID"
+        )
+    }
+
+    // TODO: also provision SD-JWT credentials, if applicable
+    @OptIn(ExperimentalResourceApi::class)
+    private fun provisionDocument(
+        documentId: String,
+        documentType: DocumentType,
+        givenNameOverride: String,
+        displayName: String,
+    ) {
+        val document = documentStore.createDocument(documentId)
 
         val nsdBuilder = NameSpacedData.Builder()
-        for ((nsName, ns) in DrivingLicense.getDocumentType().mdocDocumentType?.namespaces!!) {
+        for ((nsName, ns) in documentType.mdocDocumentType?.namespaces!!) {
             for ((deName, de) in ns.dataElements) {
                 val sampleValue = de.attribute.sampleValue
                 if (sampleValue != null) {
-                    nsdBuilder.putEntry(nsName, deName, Cbor.encode(sampleValue))
+                    if (deName.startsWith("given_name")) {
+                        nsdBuilder.putEntry(nsName, deName, Cbor.encode(Tstr(givenNameOverride)))
+                    } else {
+                        nsdBuilder.putEntry(nsName, deName, Cbor.encode(sampleValue))
+                    }
                 } else {
                     Logger.w(TAG, "No sample value for data element $deName")
                 }
@@ -331,6 +328,9 @@ object TestAppUtils {
         }
         documentData = nsdBuilder.build()
 
+        // TODO: move ApplicationData for `documentData`, `cardArt`, `displayName` to real
+        //  fields on Document.
+        //
         document.applicationData.setNameSpacedData("documentData", documentData)
         val overrides: MutableMap<String, Map<String, ByteArray>> = HashMap()
         val exceptions: MutableMap<String, List<String>> = HashMap()
@@ -342,6 +342,8 @@ object TestAppUtils {
             )
             document.applicationData.setData("cardArt", cardArt)
         }
+        document.applicationData.setString("displayName", displayName)
+        document.applicationData.setString("displayType", documentType.displayName)
 
         // Create an authentication key... make sure the authKey used supports both
         // mdoc ECDSA and MAC authentication.
@@ -350,20 +352,20 @@ object TestAppUtils {
         val timeValidityBegin =  now - 1.hours
         val timeValidityEnd = now + 24.hours
         val mdocCredential = MdocCredential(
-            document,
-            null,
-            "AuthKeyDomain",
-            secureArea,
-            SoftwareCreateKeySettings.Builder()
+            document = document,
+            asReplacementFor = null,
+            domain = MDOC_AUTH_KEY_DOMAIN,
+            secureArea = secureArea,
+            createKeySettings = SoftwareCreateKeySettings.Builder()
                 .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
                 .build(),
-            "org.iso.18013.5.1.mDL"
+            docType = documentType.mdocDocumentType!!.docType
         )
 
         // Generate an MSO and issuer-signed data for this authentication key.
         val msoGenerator = MobileSecurityObjectGenerator(
             "SHA-256",
-            DrivingLicense.MDL_DOCTYPE,
+            documentType.mdocDocumentType!!.docType,
             mdocCredential.attestation.publicKey
         )
         msoGenerator.setValidityInfo(timeSigned, timeValidityBegin, timeValidityEnd, null)
@@ -381,8 +383,6 @@ object TestAppUtils {
             )
             msoGenerator.addDigestIdsForNamespace(nameSpaceName, digests)
         }
-        val validFrom = Clock.System.now() - 1.hours
-        val validUntil = validFrom + 24.hours
 
         val mso = msoGenerator.generate()
         val taggedEncodedMso = Cbor.encode(Tagged(24, Bstr(mso)))

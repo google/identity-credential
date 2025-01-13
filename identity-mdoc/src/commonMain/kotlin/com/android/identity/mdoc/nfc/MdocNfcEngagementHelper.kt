@@ -5,6 +5,7 @@ import com.android.identity.cbor.DataItem
 import com.android.identity.cbor.Simple
 import com.android.identity.crypto.EcPublicKey
 import com.android.identity.mdoc.connectionmethod.ConnectionMethod
+import com.android.identity.mdoc.connectionmethod.ConnectionMethodBle
 import com.android.identity.mdoc.engagement.EngagementGenerator
 import com.android.identity.mdoc.transport.MdocTransport
 import com.android.identity.nfc.CommandApdu
@@ -154,6 +155,7 @@ class MdocNfcEngagementHelper(
                     val handoverSelectMessage = generateHandoverSelectMessage(
                         methods = staticHandoverMethods!!,
                         encodedDeviceEngagement = encodedDeviceEngagement,
+                        skipUuids = false,
                     )
                     val hsPayload = handoverSelectMessage.encode()
 
@@ -222,7 +224,7 @@ class MdocNfcEngagementHelper(
 
         val availableConnectionMethods = mutableListOf<ConnectionMethod>()
         for (record in message.records.subList(1, message.records.size)) {
-            ConnectionMethod.fromNdefRecord(record, MdocTransport.Role.MDOC_READER)?.let {
+            ConnectionMethod.fromNdefRecord(record, MdocTransport.Role.MDOC_READER, null)?.let {
                 availableConnectionMethods.add(it)
             }
         }
@@ -240,9 +242,25 @@ class MdocNfcEngagementHelper(
             EngagementGenerator.ENGAGEMENT_VERSION_1_0
         ).generate()
 
+        // When doing Negotiated Handover, the standard says to don't include the UUIDs in Handover Select
+        // message for mdoc central client mode:
+        //
+        //   The following requirements apply for including the UUID field during NFC device engagement:
+        //
+        //     — for Negotiated Handover, if the mdoc reader supports mdoc central client mode, it shall include a
+        //       UUID in the Handover Request message, to be used for mdoc central client mode;
+        //     — for Negotiated Handover, if the mdoc chooses to use mdoc peripheral server mode, it shall include a
+        //       UUID in the Handover Select message, to be used for mdoc peripheral server mode;
+        //     — for Static Handover, the mdoc shall send one UUID in the handover select message, to be used for
+        //       mdoc central client mode, mdoc peripheral server mode or both.
+        //
+        // Reference: ISO/IEC 18013-5:2021 clause 8.3.3.1.1.2 Device engagement contents
+        //
+        val skipUuids = selectedMethod is ConnectionMethodBle && selectedMethod.supportsCentralClientMode == true
         val handoverSelectMessage = generateHandoverSelectMessage(
             methods = listOf(selectedMethod),
-            encodedDeviceEngagement = encodedDeviceEngagement
+            encodedDeviceEngagement = encodedDeviceEngagement,
+            skipUuids = skipUuids,
         )
 
         val handover = CborArray.builder()
@@ -265,14 +283,16 @@ class MdocNfcEngagementHelper(
     private fun generateHandoverSelectMessage(
         methods: List<ConnectionMethod>,
         encodedDeviceEngagement: ByteArray,
+        skipUuids: Boolean,
     ): NdefMessage {
         val auxiliaryReferences = mutableListOf<String>("mdoc")
         val carrierConfigurationRecords = mutableListOf<NdefRecord>()
         val alternativeCarrierRecords = mutableListOf<NdefRecord>()
         for (method in methods) {
             val ndefRecordAndAlternativeCarrier = method.toNdefRecord(
-                auxiliaryReferences,
-                MdocTransport.Role.MDOC
+                auxiliaryReferences = auxiliaryReferences,
+                role = MdocTransport.Role.MDOC,
+                skipUuids = skipUuids
             )!!
             carrierConfigurationRecords.add(ndefRecordAndAlternativeCarrier.first)
             alternativeCarrierRecords.add(ndefRecordAndAlternativeCarrier.second)

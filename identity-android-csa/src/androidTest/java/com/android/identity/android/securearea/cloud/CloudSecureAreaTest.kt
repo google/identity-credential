@@ -114,10 +114,10 @@ class CloudSecureAreaTest {
             if (packageToAllow != null) {
                 try {
                     val pkg = context.packageManager
-                        .getPackageInfo(packageToAllow, PackageManager.GET_SIGNATURES)
+                        .getPackageInfo(packageToAllow, PackageManager.GET_SIGNING_CERTIFICATES)
                     val digester = MessageDigest.getInstance("SHA-256")
-                    for (n in pkg.signatures.indices) {
-                        digestOfSignatures.add(digester.digest(pkg.signatures[n].toByteArray()))
+                    for (n in pkg.signingInfo!!.apkContentsSigners.indices) {
+                        digestOfSignatures.add(digester.digest(pkg.signingInfo!!.apkContentsSigners[n].toByteArray()))
                     }
                 } catch (e: PackageManager.NameNotFoundException) {
                     throw CloudException(e)

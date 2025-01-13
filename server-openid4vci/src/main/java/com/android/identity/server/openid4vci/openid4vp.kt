@@ -10,8 +10,7 @@ import com.android.identity.crypto.EcPublicKeyDoubleCoordinate
 import com.android.identity.crypto.X500Name
 import com.android.identity.crypto.X509Cert
 import com.android.identity.crypto.X509CertChain
-import com.android.identity.crypto.javaX509Certificate
-import com.android.identity.documenttype.DocumentWellKnownRequest
+import com.android.identity.documenttype.DocumentCannedRequest
 import com.android.identity.documenttype.knowntypes.EUPersonalID
 import com.android.identity.mdoc.util.MdocUtil
 import com.android.identity.sdjwt.util.JsonWebKey
@@ -26,13 +25,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.bouncycastle.asn1.ASN1ObjectIdentifier
-import org.bouncycastle.asn1.x509.ExtendedKeyUsage
-import org.bouncycastle.asn1.x509.Extension
-import org.bouncycastle.asn1.x509.KeyPurposeId
-import org.bouncycastle.asn1.x509.KeyUsage
-import java.security.interfaces.ECPrivateKey
-import java.security.interfaces.ECPublicKey
 import kotlin.random.Random
 
 data class Openid4VpSession(
@@ -48,7 +40,7 @@ fun initiateOpenid4Vp(
 ): Openid4VpSession {
     val (singleUseReaderKeyPriv, singleUseReaderKeyCertChain) = createSingleUseReaderKey()
 
-    val request = EUPersonalID.getDocumentType().sampleRequests.first { it.id == "full" }
+    val request = EUPersonalID.getDocumentType().cannedRequests.first { it.id == "full" }
     val nonce = Random.nextBytes(15).toBase64Url()
     val publicKey = singleUseReaderKeyPriv.publicKey
 
@@ -92,7 +84,7 @@ private fun EcPublicKey.toJson(keyId: String?): JsonObject {
 }
 
 private fun mdocCalcPresentationDefinition(
-    request: DocumentWellKnownRequest
+    request: DocumentCannedRequest
 ): JsonObject {
     return buildJsonObject {
         // Fill in a unique ID.

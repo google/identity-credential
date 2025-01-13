@@ -23,6 +23,7 @@ abstract class NfcIsoTag {
      * Selects an application according to ISO 7816-4 clause 11.2.2.
      *
      * @param applicationId the application to select, e.g. [Nfc.NDEF_APPLICATION_ID].
+     * @throws NfcCommandFailedException if the command fails.
      */
     suspend fun selectApplication(applicationId: ByteString) {
         // ISO 7816-4 clause 11.2.2
@@ -37,7 +38,7 @@ abstract class NfcIsoTag {
             )
         )
         if (response.status != Nfc.RESPONSE_STATUS_SUCCESS) {
-            throw IllegalStateException("Error selecting application, status ${response.statusHexString}")
+            throw NfcCommandFailedException("Error selecting application, status ${response.statusHexString}", response.status)
         }
     }
 
@@ -45,6 +46,7 @@ abstract class NfcIsoTag {
      * Selects a file according to ISO 7816-4 clause 11.2.2.
      *
      * @param fileId the identifier for the file to select, e.g. [Nfc.NDEF_CAPABILITY_CONTAINER_FILE_ID].
+     * @throws NfcCommandFailedException if the command fails.
      */
     suspend fun selectFile(fileId: Int) {
         //
@@ -59,7 +61,7 @@ abstract class NfcIsoTag {
             )
         )
         if (response.status != Nfc.RESPONSE_STATUS_SUCCESS) {
-            throw IllegalStateException("Error selecting file, status ${response.statusHexString}")
+            throw NfcCommandFailedException("Error selecting file, status ${response.statusHexString}", response.status)
         }
     }
 
@@ -69,6 +71,7 @@ abstract class NfcIsoTag {
      * @param offset offset of where to read from.
      * @param length amount of data to read, must be positive.
      * @return the data which was read.
+     * @throws NfcCommandFailedException if the command fails.
      */
     suspend fun readBinary(offset: Int, length: Int): ByteArray {
         require(length > 0) { "Length must be positive" }
@@ -84,7 +87,7 @@ abstract class NfcIsoTag {
             )
         )
         if (response.status != Nfc.RESPONSE_STATUS_SUCCESS) {
-            throw IllegalStateException("Error READ BINARY, status ${response.statusHexString}")
+            throw NfcCommandFailedException("Error READ BINARY, status ${response.statusHexString}", response.status)
         }
         return response.payload.toByteArray()
     }
@@ -94,6 +97,7 @@ abstract class NfcIsoTag {
      *
      * @param offset offset of where to update data.
      * @param data the data to write, cannot be larger than 255 bytes.
+     * @throws NfcCommandFailedException if the command fails.
      */
     suspend fun updateBinary(offset: Int, data: ByteArray) {
         require(data.size > 0) { "Data to write must be non-empty" }
@@ -111,7 +115,7 @@ abstract class NfcIsoTag {
             )
         )
         if (response.status != Nfc.RESPONSE_STATUS_SUCCESS) {
-            throw IllegalStateException("Error UPDATE BINARY, status ${response.statusHexString}")
+            throw NfcCommandFailedException("Error UPDATE BINARY, status ${response.statusHexString}", response.status)
         }
     }
 

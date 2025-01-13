@@ -168,11 +168,9 @@ class GetCredentialActivity : FragmentActivity() {
             val cmrequest = extractGetCredentialRequest(intent)
             val credentialId = intent.getLongExtra(EXTRA_CREDENTIAL_ID, -1).toInt()
 
-            // This call is currently broken, have to extract this info manually for now
-            //val callingAppInfo = extractCallingAppInfo(intent)
-            val callingPackageName =
-                intent.getStringExtra(IntentHelper.EXTRA_CALLING_PACKAGE_NAME)!!
-            val callingOrigin = intent.getStringExtra(IntentHelper.EXTRA_ORIGIN)
+            val callingAppInfo = IntentHelper.extractCallingAppInfo(intent)!!
+            val callingPackageName = callingAppInfo.packageName
+            val callingOrigin = callingAppInfo.origin
 
             log("CredId: $credentialId ${cmrequest!!.credentialOptions.get(0).requestMatcher}")
             log("Calling app $callingPackageName $callingOrigin")

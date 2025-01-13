@@ -32,7 +32,9 @@ import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -242,18 +244,6 @@ internal class BleCentralManagerAndroid: BleCentralManager {
                 }
             } catch (error: Throwable) {
                 onError(Error("onServicesDiscovered failed", error))
-            }
-        }
-
-        override fun onServiceChanged(gatt: BluetoothGatt) {
-            Logger.d(TAG, "onServiceChanged")
-            // Receiving this event means that the GATT database is out of sync with the remote device.
-            // We assume this means that the service has vanished.
-            //
-            // If we're using L2CAP, we don't use this signal. Instead we rely on the socket being
-            // closed.
-            if (l2capSocket == null) {
-                onError(Error("onServiceChanged: GATT Service vanished"))
             }
         }
 

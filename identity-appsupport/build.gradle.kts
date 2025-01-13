@@ -54,6 +54,7 @@ kotlin {
                 implementation(project(":identity-mdoc"))
                 implementation(libs.kotlinx.datetime)
                 implementation(libs.kotlinx.io.core)
+                implementation(libs.kotlinx.serialization.json)
                 implementation(libs.qrose)
                 implementation(libs.easyqrscan)
             }
@@ -66,6 +67,7 @@ kotlin {
                 implementation(libs.tink)
                 implementation(libs.accompanist.permissions)
                 implementation(libs.androidx.material)
+                implementation(libs.play.services.identity.credentials)
             }
         }
     }

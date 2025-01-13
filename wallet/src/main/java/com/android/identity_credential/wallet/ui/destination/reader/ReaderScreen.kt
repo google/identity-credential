@@ -67,7 +67,7 @@ import com.android.identity.appsupport.ui.qrcode.ScanQrCodeDialog
 import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.DiagnosticOption
 import com.android.identity.documenttype.DocumentTypeRepository
-import com.android.identity.documenttype.DocumentWellKnownRequest
+import com.android.identity.documenttype.DocumentCannedRequest
 import com.android.identity.documenttype.knowntypes.DrivingLicense
 import com.android.identity.documenttype.knowntypes.EUPersonalID
 import com.android.identity.documenttype.knowntypes.PhotoID
@@ -100,14 +100,14 @@ fun ReaderScreen(
     issuerTrustManager: TrustManager,
     onNavigate: (String) -> Unit,
 ) {
-    val availableRequests = mutableListOf<Pair<String, DocumentWellKnownRequest>>()
-    for (req in docTypeRepo.getDocumentTypeForMdoc(DrivingLicense.MDL_DOCTYPE)?.sampleRequests!!) {
+    val availableRequests = mutableListOf<Pair<String, DocumentCannedRequest>>()
+    for (req in docTypeRepo.getDocumentTypeForMdoc(DrivingLicense.MDL_DOCTYPE)?.cannedRequests!!) {
         availableRequests.add(Pair("mDL: ${req.displayName}", req))
     }
-    for (req in docTypeRepo.getDocumentTypeForMdoc(EUPersonalID.EUPID_DOCTYPE)?.sampleRequests!!) {
+    for (req in docTypeRepo.getDocumentTypeForMdoc(EUPersonalID.EUPID_DOCTYPE)?.cannedRequests!!) {
         availableRequests.add(Pair("EU PID: ${req.displayName}", req))
     }
-    for (req in docTypeRepo.getDocumentTypeForMdoc(PhotoID.PHOTO_ID_DOCTYPE)?.sampleRequests!!) {
+    for (req in docTypeRepo.getDocumentTypeForMdoc(PhotoID.PHOTO_ID_DOCTYPE)?.cannedRequests!!) {
         availableRequests.add(Pair("Photo ID: ${req.displayName}", req))
     }
 
@@ -165,7 +165,7 @@ fun ReaderScreen(
 private fun WaitForEngagement(
     model: ReaderModel,
     settingsModel: SettingsModel,
-    availableRequests: List<Pair<String, DocumentWellKnownRequest>>,
+    availableRequests: List<Pair<String, DocumentCannedRequest>>,
     onNavigate: (String) -> Unit,
 ) {
     val showQrScannerDialog = remember { mutableStateOf(false) }
@@ -255,10 +255,10 @@ private fun WaitForEngagement(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RequestPicker(
-    availableRequests: List<Pair<String, DocumentWellKnownRequest>>,
-    comboBoxSelected: MutableState<Pair<String, DocumentWellKnownRequest>>,
+    availableRequests: List<Pair<String, DocumentCannedRequest>>,
+    comboBoxSelected: MutableState<Pair<String, DocumentCannedRequest>>,
     comboBoxExpanded: MutableState<Boolean>,
-    onRequestSelected: (request: DocumentWellKnownRequest) -> Unit
+    onRequestSelected: (request: DocumentCannedRequest) -> Unit
 ) {
     Box(
         modifier = Modifier

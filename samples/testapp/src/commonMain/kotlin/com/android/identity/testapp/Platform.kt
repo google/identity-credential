@@ -3,9 +3,9 @@ package com.android.identity.testapp
 import com.android.identity.securearea.CreateKeySettings
 import com.android.identity.securearea.SecureArea
 
-enum class Platform {
-    ANDROID,
-    IOS
+enum class Platform(val displayName: String) {
+    ANDROID("Android"),
+    IOS("iOS")
 }
 
 expect val platform: Platform

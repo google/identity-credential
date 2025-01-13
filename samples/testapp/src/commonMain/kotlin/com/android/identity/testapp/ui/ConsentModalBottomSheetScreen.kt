@@ -11,8 +11,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.android.identity.appsupport.ui.consent.ConsentModalBottomSheet
 import com.android.identity.appsupport.ui.consent.ConsentDocument
-import com.android.identity.appsupport.ui.consent.ConsentRelyingParty
-import com.android.identity.appsupport.ui.consent.MdocConsentField
+import com.android.identity.request.Requester
 import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.CborMap
 import com.android.identity.crypto.Algorithm
@@ -21,6 +20,7 @@ import com.android.identity.documenttype.DocumentTypeRepository
 import com.android.identity.documenttype.knowntypes.DrivingLicense
 import com.android.identity.mdoc.request.DeviceRequestGenerator
 import com.android.identity.mdoc.request.DeviceRequestParser
+import com.android.identity.mdoc.util.toMdocRequest
 import com.android.identity.trustmanagement.TrustPoint
 import identitycredential.samples.testapp.generated.resources.Res
 import kotlinx.coroutines.launch
@@ -62,8 +62,8 @@ fun ConsentModalBottomSheetScreen(
         skipPartiallyExpanded = true
     )
 
-    val consentFields = remember {
-        val request = DrivingLicense.getDocumentType().sampleRequests.find { it.id == mdlSampleRequest }!!
+    val request = remember {
+        val request = DrivingLicense.getDocumentType().cannedRequests.find { it.id == mdlSampleRequest }!!
         val namespacesToRequest = mutableMapOf<String, Map<String, Boolean>>()
         for (ns in request.mdocRequest!!.namespacesToRequest) {
             val dataElementsToRequest = mutableMapOf<String, Boolean>()
@@ -87,10 +87,9 @@ fun ConsentModalBottomSheetScreen(
 
         val docTypeRepo = DocumentTypeRepository()
         docTypeRepo.addDocumentType(DrivingLicense.getDocumentType())
-        MdocConsentField.generateConsentFields(
-            deviceRequest.docRequests[0],
-            docTypeRepo,
-            null
+        deviceRequest.docRequests[0].toMdocRequest(
+            documentTypeRepository = docTypeRepo,
+            mdocCredential = null
         )
     }
 
@@ -106,27 +105,27 @@ fun ConsentModalBottomSheetScreen(
         sheetState.show()
     }
 
-    val relyingParty = when (verifierType) {
+    val (requester, trustPoint) = when (verifierType) {
         VerifierType.KNOWN_VERIFIER -> {
-            ConsentRelyingParty(
-                trustPoint = TrustPoint(
+            Pair(
+                Requester(),
+                TrustPoint(
                     certificate = X509Cert.fromPem(IACA_CERT_PEM),
                     displayName = "Utopia Brewery",
                     displayIcon = relyingPartyDisplayIcon
-                ),
-                websiteOrigin = null,
+                )
             )
         }
         VerifierType.UNKNOWN_VERIFIER_PROXIMITY ->  {
-            ConsentRelyingParty(
-                trustPoint = null,
-                websiteOrigin = null,
+            Pair(
+                Requester(),
+                null
             )
         }
         VerifierType.UNKNOWN_VERIFIER_WEBSITE ->  {
-            ConsentRelyingParty(
-                trustPoint = null,
-                websiteOrigin = "https://www.example.com",
+            Pair(
+                Requester(websiteOrigin = "https://www.example.com"),
+                null
             )
         }
     }
@@ -134,13 +133,13 @@ fun ConsentModalBottomSheetScreen(
     if (sheetState.isVisible && cardArt.size > 0) {
         ConsentModalBottomSheet(
             sheetState = sheetState,
-            consentFields = consentFields,
+            request = request,
             ConsentDocument(
                 name = "Erika's Driving License",
                 cardArt = cardArt,
                 description = "Driving License",
             ),
-            relyingParty = relyingParty,
+            trustPoint = trustPoint,
             onConfirm = {
                 scope.launch {
                     sheetState.hide()

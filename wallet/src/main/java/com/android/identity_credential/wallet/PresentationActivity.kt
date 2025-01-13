@@ -53,7 +53,7 @@ import androidx.lifecycle.lifecycleScope
 import com.android.identity.android.mdoc.deviceretrieval.DeviceRetrievalHelper
 import com.android.identity.android.mdoc.transport.DataTransport
 import com.android.identity.appsupport.ui.consent.ConsentDocument
-import com.android.identity.appsupport.ui.consent.ConsentRelyingParty
+import com.android.identity.request.Requester
 import com.android.identity.crypto.EcPrivateKey
 import com.android.identity.crypto.EcPublicKey
 import com.android.identity.document.Document
@@ -68,8 +68,9 @@ import com.android.identity.util.Logger
 import com.android.identity_credential.wallet.logging.EventLogger
 import com.android.identity_credential.wallet.presentation.UserCanceledPromptException
 import com.android.identity_credential.wallet.presentation.showMdocPresentmentFlow
-import com.android.identity.appsupport.ui.consent.MdocConsentField
+import com.android.identity.request.MdocClaim
 import com.android.identity.crypto.javaX509Certificate
+import com.android.identity.mdoc.util.toMdocRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
@@ -381,23 +382,22 @@ class PresentationActivity : FragmentActivity() {
                                     requester = EventLogger.Requester.Anonymous()
                                 }
 
-                                val consentFields = MdocConsentField.generateConsentFields(
-                                    docRequest,
-                                    walletApp.documentTypeRepository,
-                                    mdocCredential
+                                val request = docRequest.toMdocRequest(
+                                    documentTypeRepository = walletApp.documentTypeRepository,
+                                    mdocCredential = mdocCredential
                                 )
 
                                 // show the Presentation Flow for and get the response bytes for
                                 // the generated Document
                                 val documentCborBytes = showMdocPresentmentFlow(
                                     activity = this@PresentationActivity,
-                                    consentFields = consentFields,
+                                    request = request,
+                                    trustPoint = trustPoint,
                                     document = ConsentDocument(
                                         name = mdocCredential.document.documentConfiguration.displayName,
                                         description = mdocCredential.document.documentConfiguration.typeDisplayName,
                                         cardArt = mdocCredential.document.documentConfiguration.cardArt,
                                     ),
-                                    relyingParty = ConsentRelyingParty(trustPoint),
                                     credential = mdocCredential,
                                     encodedSessionTranscript = deviceRetrievalHelper!!.sessionTranscript
                                 )

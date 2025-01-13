@@ -26,7 +26,7 @@ fun ConsentModalBottomSheetListScreen(
 ) {
     val mdlRequests = remember {
         val documentType = DrivingLicense.getDocumentType()
-        documentType.sampleRequests
+        documentType.cannedRequests
     }
 
     LazyColumn(

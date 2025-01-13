@@ -42,6 +42,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.android.identity.appsupport.ui.getOutlinedImageVector
+import com.android.identity.request.Claim
+import com.android.identity.request.MdocClaim
+import com.android.identity.request.Request
+import com.android.identity.trustmanagement.TrustPoint
 import identitycredential.identity_appsupport.generated.resources.Res
 import identitycredential.identity_appsupport.generated.resources.consent_modal_bottom_sheet_button_cancel
 import identitycredential.identity_appsupport.generated.resources.consent_modal_bottom_sheet_button_more
@@ -69,9 +73,9 @@ import kotlin.math.min
  * A [ModalBottomSheet] used for obtaining the user's consent when presenting credentials.
  *
  * @param sheetState a [SheetState] for state.
- * @param consentFields the list of consent fields to show.
+ * @param request the request.
  * @param document details about the document being presented.
- * @param relyingParty a structure for conveying who is asking for the information.
+ * @param trustPoint if the requester is in a trust-list, the [TrustPoint] indicating this
  * @param onConfirm called when the sheet is dismissed.
  * @param onCancel called when the user presses the "Share" button.
  */
@@ -79,9 +83,9 @@ import kotlin.math.min
 @Composable
 fun ConsentModalBottomSheet(
     sheetState: SheetState,
-    consentFields: List<ConsentField>,
+    request: Request,
     document: ConsentDocument,
-    relyingParty: ConsentRelyingParty,
+    trustPoint: TrustPoint?,
     onConfirm: () -> Unit = {},
     onCancel: () -> Unit = {}
 ) {
@@ -97,7 +101,10 @@ fun ConsentModalBottomSheet(
         Column(
             modifier = Modifier.padding(horizontal = 16.dp)
         ) {
-            RelyingPartySection(relyingParty)
+            RelyingPartySection(
+                request = request,
+                trustPoint = trustPoint
+            )
 
             DocumentSection(document)
 
@@ -109,8 +116,8 @@ fun ConsentModalBottomSheet(
                     .weight(0.9f, false)
             ) {
                 RequestSection(
-                    consentFields = consentFields,
-                    relyingParty = relyingParty
+                    request = request,
+                    trustPoint = trustPoint
                 )
             }
 
@@ -171,15 +178,18 @@ private fun ButtonSection(
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
-private fun RelyingPartySection(relyingParty: ConsentRelyingParty) {
+private fun RelyingPartySection(
+    request: Request,
+    trustPoint: TrustPoint?
+) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (relyingParty.trustPoint != null) {
-            if (relyingParty.trustPoint.displayIcon != null) {
+        if (trustPoint != null) {
+            if (trustPoint.displayIcon != null) {
                 val rpBitmap = remember {
-                    relyingParty.trustPoint.displayIcon!!.decodeToImageBitmap()
+                    trustPoint.displayIcon!!.decodeToImageBitmap()
                 }
                 Icon(
                     modifier = Modifier.size(80.dp).padding(bottom = 16.dp),
@@ -188,22 +198,22 @@ private fun RelyingPartySection(relyingParty: ConsentRelyingParty) {
                     tint = Color.Unspecified
                 )
             }
-            if (relyingParty.trustPoint.displayName != null) {
+            if (trustPoint.displayName != null) {
                 Text(
                     text = stringResource(
                         Res.string.consent_modal_bottom_sheet_headline_share_with_known_requester,
-                        relyingParty.trustPoint.displayName!!
+                        trustPoint.displayName!!
                     ),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
-        } else if (relyingParty.websiteOrigin != null) {
+        } else if (request.requester.websiteOrigin != null) {
             Text(
                 text = stringResource(
                     Res.string.consent_modal_bottom_sheet_headline_share_with_known_requester,
-                    relyingParty.websiteOrigin
+                    request.requester.websiteOrigin!!
                 ),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.titleLarge,
@@ -270,12 +280,12 @@ private fun DocumentSection(document: ConsentDocument) {
 @OptIn(ExperimentalTextApi::class)
 @Composable
 private fun RequestSection(
-    consentFields: List<ConsentField>,
-    relyingParty: ConsentRelyingParty
+    request: Request,
+    trustPoint: TrustPoint?,
 ) {
-    val useColumns = consentFields.size > 5
-    val (storedFields, notStoredFields) = consentFields.partition {
-        it is MdocConsentField && it.intentToRetain == true
+    val useColumns = request.claims.size > 5
+    val (storedFields, notStoredFields) = request.claims.partition {
+        it is MdocClaim && it.intentToRetain == true
     }
 
     Column(
@@ -293,15 +303,15 @@ private fun RequestSection(
                     horizontalArrangement = Arrangement.Start
                 ) {
                     Text(
-                        text = if (relyingParty.trustPoint?.displayName != null) {
+                        text = if (trustPoint?.displayName != null) {
                             stringResource(
                                 Res.string.consent_modal_bottom_sheet_share_with_known_requester,
-                                relyingParty.trustPoint.displayName!!
+                                trustPoint.displayName!!
                             )
-                        } else if (relyingParty.websiteOrigin != null) {
+                        } else if (request.requester.websiteOrigin != null) {
                             stringResource(
                                 Res.string.consent_modal_bottom_sheet_share_with_known_requester,
-                                relyingParty.websiteOrigin
+                                request.requester.websiteOrigin!!
                             )
                         } else {
                             stringResource(Res.string.consent_modal_bottom_sheet_share_with_unknown_requester)
@@ -321,15 +331,15 @@ private fun RequestSection(
                     horizontalArrangement = Arrangement.Start
                 ) {
                     Text(
-                        text = if (relyingParty.trustPoint?.displayName != null) {
+                        text = if (trustPoint?.displayName != null) {
                             stringResource(
                                 Res.string.consent_modal_bottom_sheet_share_and_stored_by_known_requester,
-                                relyingParty.trustPoint.displayName!!
+                                trustPoint.displayName!!
                             )
-                        } else if (relyingParty.websiteOrigin != null) {
+                        } else if (request.requester.websiteOrigin != null) {
                             stringResource(
                                 Res.string.consent_modal_bottom_sheet_share_and_stored_by_known_requester,
-                                relyingParty.websiteOrigin
+                                request.requester.websiteOrigin!!
                             )
                         } else {
                             stringResource(Res.string.consent_modal_bottom_sheet_share_and_stored_by_unknown_requester)
@@ -375,7 +385,7 @@ private fun RequestSection(
             )
         }
     }
-    if (relyingParty.trustPoint == null) {
+    if (trustPoint == null) {
         Box(
             modifier = Modifier.padding(vertical = 8.dp)
         ) {
@@ -388,33 +398,33 @@ private fun RequestSection(
 
 @Composable
 private fun DataElementGridView(
-    consentFields: List<ConsentField>,
+    claims: List<Claim>,
     useColumns: Boolean
 ) {
     if (!useColumns) {
-        for (consentField in consentFields) {
+        for (claim in claims) {
             Row(modifier = Modifier.fillMaxWidth()) {
-                DataElementView(consentField = consentField, modifier = Modifier.weight(1.0f))
+                DataElementView(claim = claim, modifier = Modifier.weight(1.0f))
             }
         }
     } else {
         var n = 0
-        while (n <= consentFields.size - 2) {
+        while (n <= claims.size - 2) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                DataElementView(consentField = consentFields[n], modifier = Modifier.weight(1.0f))
+                DataElementView(claim = claims[n], modifier = Modifier.weight(1.0f))
                 DataElementView(
-                    consentField = consentFields[n + 1],
+                    claim = claims[n + 1],
                     modifier = Modifier.weight(1.0f)
                 )
             }
             n += 2
         }
-        if (n < consentFields.size) {
+        if (n < claims.size) {
             Row(modifier = Modifier.fillMaxWidth()) {
-                DataElementView(consentField = consentFields[n], modifier = Modifier.weight(1.0f))
+                DataElementView(claim = claims[n], modifier = Modifier.weight(1.0f))
             }
         }
     }
@@ -426,21 +436,21 @@ private fun DataElementGridView(
 @Composable
 private fun DataElementView(
     modifier: Modifier,
-    consentField: ConsentField,
+    claim: Claim,
 ) {
     Row(
         horizontalArrangement = Arrangement.Start,
         modifier = modifier.padding(8.dp),
     ) {
-        if (consentField.attribute?.icon != null) {
+        if (claim.attribute?.icon != null) {
             Icon(
-                consentField.attribute!!.icon!!.getOutlinedImageVector(),
+                claim.attribute!!.icon!!.getOutlinedImageVector(),
                 contentDescription = stringResource(Res.string.consent_modal_bottom_sheet_data_element_icon_description)
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(
-            text = consentField.displayName,
+            text = claim.displayName,
             fontWeight = FontWeight.Normal,
             style = MaterialTheme.typography.bodySmall
         )

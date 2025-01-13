@@ -135,7 +135,7 @@ class ConnectionMethodBle(
         private const val OPTION_KEY_PERIPHERAL_SERVER_MODE_UUID = 10L
         private const val OPTION_KEY_CENTRAL_CLIENT_MODE_UUID = 11L
         private const val OPTION_KEY_PERIPHERAL_SERVER_MODE_BLE_DEVICE_ADDRESS = 20L
-        private const val OPTION_KEY_PERIPHERAL_SERVER_MODE_PSM = 2023L // NOTE: not yet standardized
+        private const val OPTION_KEY_PERIPHERAL_SERVER_MODE_PSM = 21L // NOTE: as per drafts of 18013-5 Second Edition
 
         internal fun fromDeviceEngagement(encodedDeviceRetrievalMethod: ByteArray): ConnectionMethodBle? {
             val array = decode(encodedDeviceRetrievalMethod)
@@ -195,13 +195,13 @@ class ConnectionMethodBle(
 
         internal fun fromNdefRecord(
             record: NdefRecord,
-            role: MdocTransport.Role
+            role: MdocTransport.Role,
+            uuidToReplace: UUID?
         ): ConnectionMethodBle? {
             var centralClient = false
             var peripheral = false
-            var uuid: UUID? = null
+            var uuid: UUID? = uuidToReplace
             var gotLeRole = false
-            var gotUuid = false
             var psm : Int? = null
             var macAddress: ByteArray? = null
 
@@ -253,7 +253,6 @@ class ConnectionMethodBle(
                     val lsb = payload.readLongLe().toULong()
                     val msb = payload.readLongLe().toULong()
                     uuid = UUID(msb, lsb)
-                    gotUuid = true
                 } else if (type == BLE_LE_BLUETOOTH_MAC_ADDRESS && len == 0x07) {
                     // MAC address
                     macAddress = payload.readByteArray(6)
@@ -288,7 +287,8 @@ class ConnectionMethodBle(
 
     override fun toNdefRecord(
         auxiliaryReferences: List<String>,
-        role: MdocTransport.Role
+        role: MdocTransport.Role,
+        skipUuids: Boolean
     ): Pair<NdefRecord, NdefRecord> {
         // The OOB data is defined in "Supplement to the Bluetooth Core Specification".
         //
@@ -333,7 +333,7 @@ class ConnectionMethodBle(
         buf.writeByte(0x02)  // Length
         buf.writeByte(BLE_LE_ROLE.toByte())
         buf.writeByte(leRole.toByte())
-        if (uuid != null) {
+        if (uuid != null && !skipUuids) {
             buf.writeByte(0x11) // Length
             buf.writeByte(BLE_LE_COMPLETE_LIST_OF_128_BIT_SERVICE_CLASS_UUIDS.toByte())
             buf.writeULongLe(uuid.leastSignificantBits)

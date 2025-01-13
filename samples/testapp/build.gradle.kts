@@ -1,3 +1,4 @@
+import org.gradle.kotlin.dsl.implementation
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -66,6 +67,7 @@ kotlin {
                 implementation(libs.bouncy.castle.bcprov)
                 implementation(libs.androidx.biometrics)
                 implementation(libs.ktor.client.android)
+                implementation(libs.play.services.identity.credentials)
                 implementation(project(":identity-android"))
                 implementation(project(":identity-android-csa"))
             }
