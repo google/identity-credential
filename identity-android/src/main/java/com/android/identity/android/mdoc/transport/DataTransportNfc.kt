@@ -387,18 +387,18 @@ class DataTransportNfc(
         baos.write(ins)
         baos.write(p1)
         baos.write(p2)
-        var hasExtendedLc = false
-        if (data == null) {
-            baos.write(0)
-        } else if (data.size < 256) {
-            baos.write(data.size)
-        } else {
-            hasExtendedLc = true
+        var isExtended = true
+        if (le > 256 || (data != null && data.size > 256)) {
+            isExtended = true
             baos.write(0x00)
-            baos.write(data.size / 0x100)
-            baos.write(data.size and 0xff)
         }
         if (data != null && data.size > 0) {
+            if (isExtended && le > 256 && data.size < 256 || data.size > 256) {
+                baos.write(data.size / 0x100)
+                baos.write(data.size and 0xff)
+            } else {
+                baos.write(data.size)
+            }
             try {
                 baos.write(data)
             } catch (e: IOException) {
@@ -411,9 +411,6 @@ class DataTransportNfc(
             } else if (le < 256) {
                 baos.write(le)
             } else {
-                if (!hasExtendedLc) {
-                    baos.write(0x00)
-                }
                 if (le == 65536) {
                     baos.write(0x00)
                     baos.write(0x00)
@@ -508,7 +505,7 @@ class DataTransportNfc(
             reportError(Error("NFC IsoDep not set"))
             return
         }
-        val maxTransceiveLength = _isoDep!!.maxTransceiveLength
+        val maxTransceiveLength = Math.min(connectionMethod.commandDataFieldMaxLength.toInt(), _isoDep!!.maxTransceiveLength)
         Logger.d(TAG, "maxTransceiveLength: $maxTransceiveLength")
         Logger.d(TAG, "isExtendedLengthApduSupported: ${_isoDep!!.isExtendedLengthApduSupported}")
         val transceiverThread: Thread = object : Thread() {
