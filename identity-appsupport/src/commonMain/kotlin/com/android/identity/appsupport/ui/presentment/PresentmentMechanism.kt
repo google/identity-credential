@@ -1,10 +1,10 @@
-package com.android.identity.testapp.presentation
+package com.android.identity.appsupport.ui.presentment
 
 /**
  * Abstract interface to represent a mechanism used to connect a credential reader
- * with a credential provider.
+ * with a credential prover.
  */
-interface PresentationMechanism {
+interface PresentmentMechanism {
 
     /**
      * Closes down the connection and release all resources.

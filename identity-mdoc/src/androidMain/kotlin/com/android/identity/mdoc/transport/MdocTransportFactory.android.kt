@@ -3,7 +3,7 @@ package com.android.identity.mdoc.transport
 import com.android.identity.mdoc.connectionmethod.ConnectionMethod
 import com.android.identity.mdoc.connectionmethod.ConnectionMethodBle
 
-actual fun defaultMdocTransportFactoryCreateTransport(
+internal actual fun defaultMdocTransportFactoryCreateTransport(
     connectionMethod: ConnectionMethod,
     role: MdocTransport.Role,
     options: MdocTransportOptions

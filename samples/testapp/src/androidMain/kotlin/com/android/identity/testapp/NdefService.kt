@@ -12,12 +12,13 @@ import com.android.identity.crypto.EcPrivateKey
 import com.android.identity.mdoc.connectionmethod.ConnectionMethod
 import com.android.identity.mdoc.connectionmethod.ConnectionMethodBle
 import com.android.identity.mdoc.nfc.MdocNfcEngagementHelper
-import com.android.identity.testapp.presentation.MdocPresentationMechanism
+import com.android.identity.appsupport.ui.presentment.MdocPresentmentMechanism
 import com.android.identity.mdoc.transport.MdocTransport
 import com.android.identity.mdoc.transport.MdocTransportFactory
 import com.android.identity.mdoc.transport.MdocTransportOptions
 import com.android.identity.nfc.CommandApdu
-import com.android.identity.testapp.presentation.PresentationModel
+import com.android.identity.appsupport.ui.presentment.PresentmentModel
+import com.android.identity.mdoc.transport.connectionHelper
 import com.android.identity.util.AndroidContexts
 import com.android.identity.util.Logger
 import com.android.identity.util.UUID
@@ -32,17 +33,16 @@ import kotlinx.io.bytestring.ByteString
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-// TODO: whether to use static or negotiated handover + other settings should be
-//  configurable in IsoMdocProximitySharingScreen
-
 class NdefService: HostApduService() {
     companion object {
         private val TAG = "NdefService"
 
         private var engagement: MdocNfcEngagementHelper? = null
-        private var listeningTransports = mutableListOf<MdocTransport>()
         private var disableEngagementJob: Job? = null
+        private var listenForCancellationFromUiJob: Job? = null
+        val presentmentModel: PresentmentModel by lazy { PresentmentModel() }
     }
+
 
     private fun vibrate(pattern: List<Int>) {
         val vibrator = ContextCompat.getSystemService<Vibrator>(
@@ -61,10 +61,12 @@ class NdefService: HostApduService() {
     }
 
     override fun onDestroy() {
+        Logger.i(TAG, "onDestroy")
         super.onDestroy()
     }
 
     override fun onCreate() {
+        Logger.i(TAG, "onCreate")
         super.onCreate()
         MainActivity.initBouncyCastle()
     }
@@ -72,20 +74,33 @@ class NdefService: HostApduService() {
     private var started = false
 
     private fun startEngagement() {
-        if (disableEngagementJob != null) {
-            disableEngagementJob?.cancel()
-            disableEngagementJob = null
-        }
-        closeListeningTransports()
+        disableEngagementJob?.cancel()
+        disableEngagementJob = null
+        listenForCancellationFromUiJob?.cancel()
+        listenForCancellationFromUiJob = null
+
+        val settingsModel = App.settingsModel
 
         val eDeviceKey = Crypto.createEcPrivateKey(EcCurve.P256)
         val timeStarted = Clock.System.now()
 
-        val presentationModel = PresentationModel.getInstance()
-        presentationModel.reset()
-        presentationModel.setWaiting()
+        presentmentModel.reset()
+        presentmentModel.setConnecting()
 
-        val intent = Intent(applicationContext, NfcPresentationActivity::class.java)
+        // The UI consuming [PresentationModel] - for example the [Presentment] composable in this library - may
+        // have a cancel button which will trigger COMPLETED state when pressed. Need to listen for that.
+        //
+        listenForCancellationFromUiJob = presentmentModel.presentmentScope.launch {
+            presentmentModel.state
+                .collect { state ->
+                    if (state == PresentmentModel.State.COMPLETED) {
+                        disableEngagementJob?.cancel()
+                        disableEngagementJob = null
+                    }
+                }
+        }
+
+        val intent = Intent(applicationContext, NfcPresentmentActivity::class.java)
         intent.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_NO_HISTORY or
@@ -94,92 +109,114 @@ class NdefService: HostApduService() {
         )
         applicationContext.startActivity(intent)
 
-        val staticHandoverMethods = mutableListOf<ConnectionMethod>()
-        staticHandoverMethods.add(
-            ConnectionMethodBle(
-                supportsPeripheralServerMode = false,
-                supportsCentralClientMode = true,
-                peripheralServerModeUuid = null,
-                centralClientModeUuid = UUID.randomUUID()
-            )
-        )
+        fun negotiatedHandoverPicker(connectionMethods: List<ConnectionMethod>): ConnectionMethod {
+            Logger.i(TAG, "Negotiated Handover available methods: $connectionMethods")
+            for (prefix in settingsModel.presentmentNegotiatedHandoverPreferredOrder.value) {
+                for (connectionMethod in connectionMethods) {
+                    if (connectionMethod.toString().startsWith(prefix)) {
+                        Logger.i(TAG, "Using method $connectionMethod")
+                        return connectionMethod
+                    }
+                }
+            }
+            Logger.i(TAG, "Using method ${connectionMethods.first()}")
+            return connectionMethods.first()
+        }
+
+        val negotiatedHandoverPicker: ((connectionMethods: List<ConnectionMethod>) -> ConnectionMethod)? =
+            if (settingsModel.presentmentUseNegotiatedHandover.value) {
+                { connectionMethods -> negotiatedHandoverPicker(connectionMethods) }
+            } else {
+                null
+            }
+
+        var staticHandoverConnectionMethods: List<ConnectionMethod>? = null
+        if (!settingsModel.presentmentUseNegotiatedHandover.value) {
+            staticHandoverConnectionMethods = mutableListOf<ConnectionMethod>()
+            val bleUuid = UUID.randomUUID()
+            if (settingsModel.presentmentBleCentralClientModeEnabled.value) {
+                staticHandoverConnectionMethods.add(
+                    ConnectionMethodBle(
+                        supportsPeripheralServerMode = false,
+                        supportsCentralClientMode = true,
+                        peripheralServerModeUuid = null,
+                        centralClientModeUuid = bleUuid,
+                    )
+                )
+            }
+            if (settingsModel.presentmentBlePeripheralServerModeEnabled.value) {
+                staticHandoverConnectionMethods.add(
+                    ConnectionMethodBle(
+                        supportsPeripheralServerMode = true,
+                        supportsCentralClientMode = false,
+                        peripheralServerModeUuid = bleUuid,
+                        centralClientModeUuid = null,
+                    )
+                )
+            }
+        }
 
         engagement = MdocNfcEngagementHelper(
             eDeviceKey = eDeviceKey.publicKey,
             onHandoverComplete = { connectionMethods, encodedDeviceEngagement, handover ->
                 vibrateSuccess()
                 val duration = Clock.System.now() - timeStarted
-                listenOnMethods(connectionMethods, encodedDeviceEngagement, handover, eDeviceKey, duration)
+                listenOnMethods(
+                    connectionMethods = connectionMethods,
+                    settingsModel = settingsModel,
+                    encodedDeviceEngagement = encodedDeviceEngagement,
+                    handover = handover,
+                    eDeviceKey = eDeviceKey,
+                    engagementDuration = duration
+                )
             },
             onError = { error ->
                 Logger.w(TAG, "Engagement failed", error)
                 vibrateError()
                 engagement = null
             },
-            staticHandoverMethods = null,
-            negotiatedHandoverPicker = { connectionMethods -> connectionMethods.first() }
+            staticHandoverMethods = staticHandoverConnectionMethods,
+            negotiatedHandoverPicker = negotiatedHandoverPicker
         )
     }
 
     private fun listenOnMethods(
         connectionMethods: List<ConnectionMethod>,
+        settingsModel: TestAppSettingsModel,
         encodedDeviceEngagement: ByteString,
         handover: DataItem,
         eDeviceKey: EcPrivateKey,
         engagementDuration: Duration,
     ) {
-        for (connectionMethod in connectionMethods) {
-            val transport = MdocTransportFactory.Default.createTransport(
-                connectionMethod,
-                MdocTransport.Role.MDOC,
-                MdocTransportOptions()
+        presentmentModel.presentmentScope.launch {
+            val transport = connectionMethods.connectionHelper(
+                role = MdocTransport.Role.MDOC,
+                transportFactory = MdocTransportFactory.Default,
+                options = MdocTransportOptions(
+                    bleUseL2CAP = settingsModel.readerBleL2CapEnabled.value
+                ),
+                eDeviceKey = eDeviceKey.publicKey,
+                onConnectionMethodsReady = {}
             )
-            listeningTransports.add(transport)
-            CoroutineScope(Dispatchers.IO).launch {
-                transport.open(eDeviceKey.publicKey)
-                methodConnected(transport, encodedDeviceEngagement, handover, eDeviceKey, engagementDuration)
-            }
-        }
-    }
-
-    private fun methodConnected(
-        transport: MdocTransport,
-        encodedDeviceEngagement: ByteString,
-        handover: DataItem,
-        eDeviceKey: EcPrivateKey,
-        engagementDuration: Duration,
-    ) {
-        val presentationModel = PresentationModel.getInstance()
-        presentationModel.setRunning(
-            MdocPresentationMechanism(
-                transport = transport,
-                eDeviceKey = eDeviceKey,
-                encodedDeviceEngagement = encodedDeviceEngagement,
-                handover = handover,
-                engagementDuration = engagementDuration
+            presentmentModel.setMechanism(
+                MdocPresentmentMechanism(
+                    transport = transport,
+                    eDeviceKey = eDeviceKey,
+                    encodedDeviceEngagement = encodedDeviceEngagement,
+                    handover = handover,
+                    engagementDuration = engagementDuration,
+                    allowMultipleRequests = settingsModel.presentmentAllowMultipleRequests.value
+                )
             )
-        )
-        listeningTransports.remove(transport)
-        closeListeningTransports()
-
-        if (disableEngagementJob != null) {
             disableEngagementJob?.cancel()
             disableEngagementJob = null
+            listenForCancellationFromUiJob?.cancel()
+            listenForCancellationFromUiJob = null
         }
-    }
-
-    private fun closeListeningTransports() {
-        for (transport in listeningTransports) {
-            try {
-                runBlocking { transport.close() }
-            } catch (e: Throwable) {
-                Logger.e(TAG, "Exception caught closing listening transport", e)
-            }
-        }
-        listeningTransports.clear()
     }
 
     override fun processCommandApdu(encodedCommandApdu: ByteArray, extras: Bundle?): ByteArray? {
+        Logger.i(TAG, "processCommandApdu")
         if (!started) {
             started = true
             startEngagement()
@@ -200,18 +237,19 @@ class NdefService: HostApduService() {
 
     override fun onDeactivated(reason: Int) {
         Logger.i(TAG, "onDeactivated: reason=$reason")
-
-        disableEngagementJob = CoroutineScope(Dispatchers.IO).launch {
+        // If the reader hasn't connected by the time NFC interaction ends, make sure we only
+        // wait for a limited amount of time.
+        if (presentmentModel.state.value == PresentmentModel.State.CONNECTING) {
             val timeout = 15.seconds
-            delay(timeout)
-            Logger.w(TAG, "Reader didn't connect inside $timeout, closing")
-            closeListeningTransports()
-            val presentationModel = PresentationModel.getInstance()
-            if (presentationModel.state.value == PresentationModel.State.WAITING) {
-                presentationModel.setCompleted(Error("Reader didn't connect inside $timeout"))
+            Logger.i(TAG, "Reader hasn't connected at NFC deactivation time, scheduling $timeout timeout for closing")
+            disableEngagementJob = CoroutineScope(Dispatchers.IO).launch {
+                delay(timeout)
+                if (presentmentModel.state.value == PresentmentModel.State.CONNECTING) {
+                    presentmentModel.setCompleted(Error("Reader didn't connect inside $timeout, closing"))
+                }
+                engagement = null
+                disableEngagementJob = null
             }
-            engagement = null
-            disableEngagementJob = null
         }
     }
 }

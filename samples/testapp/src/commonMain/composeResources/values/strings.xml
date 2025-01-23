@@ -18,6 +18,6 @@
     <string name="iso_mdoc_proximity_reading_title">ISO mdoc Proximity Reading</string>
     <string name="iso_mdoc_multi_device_testing_title">ISO mdoc Multi-Device Testing</string>
     <string name="provisioning_test_title">Test provisioning</string>
-    <string name="presentation_title">Presentation</string>
+    <string name="presentment_title">Presentment</string>
 
 </resources>

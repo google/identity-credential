@@ -31,15 +31,15 @@ import com.android.identity.cbor.DataItem
  * which is a longer description of the attribute, typically
  * no more than one paragraph.
  *
- * @param displayName the name suitable for display of the Document Type.
- * @param sampleRequests sample [DocumentWellKnownRequest] for the Document Type.
+ * @param displayName the name suitable for display, e.g. "Driving License".
+ * @param cannedRequests sample [DocumentCannedRequest] for the Document Type.
  * @param mdocDocumentType metadata of an mDoc Document Type (optional).
  * @param vcDocumentType metadata of a W3C VC Document Type (optional).
  *
  */
 class DocumentType private constructor(
     val displayName: String,
-    val sampleRequests: List<DocumentWellKnownRequest>,
+    val cannedRequests: List<DocumentCannedRequest>,
     val mdocDocumentType: MdocDocumentType?,
     val vcDocumentType: VcDocumentType?
 ) {
@@ -56,7 +56,7 @@ class DocumentType private constructor(
         var mdocBuilder: MdocDocumentType.Builder? = null,
         var vcBuilder: VcDocumentType.Builder? = null
     ) {
-        private val sampleRequests = mutableListOf<DocumentWellKnownRequest>()
+        private val sampleRequests = mutableListOf<DocumentCannedRequest>()
 
         /**
          * Initialize the [mdocBuilder].
@@ -229,7 +229,7 @@ class DocumentType private constructor(
                     }
                     nsRequests.add(MdocNamespaceRequest(namespace, map))
                 }
-                MdocRequest(mdocBuilder!!.docType, nsRequests)
+                MdocCannedRequest(mdocBuilder!!.docType, nsRequests)
             }
             val vcRequest = if (vcClaims == null) {
                 null
@@ -243,9 +243,9 @@ class DocumentType private constructor(
                     }
                     list
                 }
-                VcRequest(vcBuilder!!.type, claims)
+                VcCannedRequest(vcBuilder!!.type, claims)
             }
-            sampleRequests.add(DocumentWellKnownRequest(id, displayName, mdocRequest, vcRequest))
+            sampleRequests.add(DocumentCannedRequest(id, displayName, mdocRequest, vcRequest))
         }
 
         /**

@@ -1,32 +1,34 @@
 package com.android.identity.testapp
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.fragment.app.FragmentActivity
 import com.android.identity.appsupport.ui.AppTheme
-import com.android.identity.testapp.presentation.Presentation
+import com.android.identity.appsupport.ui.presentment.Presentment
 import com.android.identity.util.AndroidContexts
-import com.android.identity.util.Logger
+import identitycredential.samples.testapp.generated.resources.Res
+import identitycredential.samples.testapp.generated.resources.app_icon
+import identitycredential.samples.testapp.generated.resources.app_name
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 
-class NfcPresentationActivity : FragmentActivity() {
+class NfcPresentmentActivity : FragmentActivity() {
     companion object {
-        private const val TAG = "NfcPresentationActivity"
+        private const val TAG = "NfcPresentmentActivity"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AndroidContexts.setCurrentActivity(this)
-
         setContent {
             AppTheme {
-                Presentation(
-                    documentStore = TestAppUtils.documentStore,
+                Presentment(
+                    presentmentModel = NdefService.presentmentModel,
                     documentTypeRepository = TestAppUtils.documentTypeRepository,
-                    readerTrustManager = TestAppUtils.readerTrustManager,
-                    allowMultipleRequests = false,
-                    showToast = { message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() },
-                    onPresentationComplete = { finish() }
+                    source = TestAppPresentmentSource(App.settingsModel),
+                    onPresentmentComplete = { finish() },
+                    appName = stringResource(Res.string.app_name),
+                    appIconPainter = painterResource(Res.drawable.app_icon),
                 )
             }
         }
@@ -45,5 +47,4 @@ class NfcPresentationActivity : FragmentActivity() {
     override fun onDestroy() {
         super.onDestroy()
     }
-
 }

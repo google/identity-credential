@@ -32,19 +32,21 @@ import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.Crypto
 import com.android.identity.crypto.EcCurve
 import com.android.identity.crypto.EcPublicKeyDoubleCoordinate
-import com.android.identity.crypto.javaX509Certificates
 import com.android.identity.issuance.DocumentExtensions.documentConfiguration
 import com.android.identity.mdoc.request.DeviceRequestParser
 import com.android.identity.mdoc.response.DeviceResponseGenerator
+import com.android.identity.mdoc.util.MdocUtil
+import com.android.identity.mdoc.util.toMdocRequest
 import com.android.identity.trustmanagement.TrustPoint
 import com.android.identity.util.Constants
 import com.android.identity.util.Logger
 import com.android.identity.util.fromBase64Url
 import com.android.identity_credential.wallet.WalletApplication
 import com.android.identity_credential.wallet.presentation.showMdocPresentmentFlow
-import com.android.identity.appsupport.ui.consent.ConsentField
-import com.android.identity.appsupport.ui.consent.ConsentRelyingParty
-import com.android.identity.appsupport.ui.consent.MdocConsentField
+import com.android.identity.request.Requester
+import com.android.identity.request.MdocClaim
+import com.android.identity.request.MdocRequest
+import com.google.android.gms.identitycredentials.Credential
 import org.json.JSONObject
 
 import com.google.android.gms.identitycredentials.GetCredentialResponse
@@ -78,11 +80,9 @@ class CredmanPresentationActivity : FragmentActivity() {
             val cmrequest = IntentHelper.extractGetCredentialRequest(intent)
             val credentialId = intent.getLongExtra(IntentHelper.EXTRA_CREDENTIAL_ID, -1).toInt()
 
-            // This call is currently broken, have to extract this info manually for now
-            //val callingAppInfo = extractCallingAppInfo(intent)
-            val callingPackageName =
-                intent.getStringExtra(IntentHelper.EXTRA_CALLING_PACKAGE_NAME)!!
-            val callingOrigin = intent.getStringExtra(IntentHelper.EXTRA_ORIGIN)
+            val callingAppInfo = IntentHelper.extractCallingAppInfo(intent)!!
+            val callingPackageName = callingAppInfo.packageName
+            val callingOrigin = callingAppInfo.origin
 
             Logger.i(TAG, "CredId: $credentialId ${cmrequest!!.credentialOptions.get(0).requestMatcher}")
             Logger.i(TAG, "Calling app $callingPackageName $callingOrigin")
@@ -126,7 +126,7 @@ class CredmanPresentationActivity : FragmentActivity() {
                         .add(Pair(name, intentToRetain))
                 }
                 val mdocCredential = getMdocCredentialForCredentialId(credentialId)
-                val consentFields = MdocConsentField.generateConsentFields(
+                val claims = MdocUtil.generateClaims(
                     docType,
                     requestedData,
                     walletApp.documentTypeRepository,
@@ -150,7 +150,7 @@ class CredmanPresentationActivity : FragmentActivity() {
                 lifecycleScope.launch {
                     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
                         mdocCredential,
-                        consentFields,
+                        claims,
                         null,
                         callingOrigin,
                         encodedSessionTranscript
@@ -215,11 +215,10 @@ class CredmanPresentationActivity : FragmentActivity() {
                 ).parse().docRequests[0]
 
                 val mdocCredential = getMdocCredentialForCredentialId(credentialId)
-                val consentFields = MdocConsentField.generateConsentFields(
-                    docRequest,
-                    walletApp.documentTypeRepository,
-                    mdocCredential
-                )
+                val claims = docRequest.toMdocRequest(
+                    documentTypeRepository = walletApp.documentTypeRepository,
+                    mdocCredential = mdocCredential
+                ).claims
 
                 val encryptionInfo = Cbor.decode(encryptionInfoBase64.fromBase64Url())
                 if (encryptionInfo.asArray.get(0).asTstr != "ARFEncryptionv2") {
@@ -250,7 +249,7 @@ class CredmanPresentationActivity : FragmentActivity() {
                 lifecycleScope.launch {
                     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
                         mdocCredential,
-                        consentFields,
+                        claims,
                         trustPoint,
                         callingOrigin,
                         encodedSessionTranscript,
@@ -328,7 +327,7 @@ class CredmanPresentationActivity : FragmentActivity() {
                         .add(Pair(name, intentToRetain))
                 }
                 val mdocCredential = getMdocCredentialForCredentialId(credentialId)
-                val consentFields = MdocConsentField.generateConsentFields(
+                val claims = MdocUtil.generateClaims(
                     docType,
                     requestedData,
                     walletApp.documentTypeRepository,
@@ -352,7 +351,7 @@ class CredmanPresentationActivity : FragmentActivity() {
                 lifecycleScope.launch {
                     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
                         mdocCredential,
-                        consentFields,
+                        claims,
                         null,
                         callingOrigin,
                         encodedSessionTranscript
@@ -396,7 +395,7 @@ class CredmanPresentationActivity : FragmentActivity() {
      * Show the Presentment Flow and handle producing the DeviceResponse CBOR bytes.
      *
      * @param mdocCredential the credential.
-     * @param consentFields the list of fields to request.
+     * @param claims the list of fields to request.
      * @param trustPoint The trust point, if known.
      * @param websiteOrigin the Website Origin, if known.
      * @param encodedSessionTranscript CBOR bytes.
@@ -404,20 +403,24 @@ class CredmanPresentationActivity : FragmentActivity() {
      */
     private suspend fun showPresentmentFlowAndGetDeviceResponse(
         mdocCredential: MdocCredential,
-        consentFields: List<ConsentField>,
+        claims: List<MdocClaim>,
         trustPoint: TrustPoint?,
         websiteOrigin: String?,
         encodedSessionTranscript: ByteArray,
     ): ByteArray {
         val documentCborBytes = showMdocPresentmentFlow(
             activity = this@CredmanPresentationActivity,
-            consentFields = consentFields,
+            request = MdocRequest(
+                requester = Requester(websiteOrigin = websiteOrigin),
+                claims = claims,
+                docType = mdocCredential.docType
+            ),
             document = ConsentDocument(
                 name = mdocCredential.document.documentConfiguration.displayName,
                 description = mdocCredential.document.documentConfiguration.typeDisplayName,
                 cardArt = mdocCredential.document.documentConfiguration.cardArt,
             ),
-            relyingParty = ConsentRelyingParty(trustPoint, websiteOrigin),
+            trustPoint = trustPoint,
             credential = mdocCredential,
             encodedSessionTranscript = encodedSessionTranscript,
         )
@@ -447,7 +450,7 @@ class CredmanPresentationActivity : FragmentActivity() {
     private fun createGetCredentialResponse(response: String): GetCredentialResponse {
         val bundle = Bundle()
         bundle.putByteArray("identityToken", response.toByteArray())
-        val credentialResponse = com.google.android.gms.identitycredentials.Credential("type", bundle)
+        val credentialResponse = Credential("type", bundle)
         return GetCredentialResponse(credentialResponse)
     }
 }

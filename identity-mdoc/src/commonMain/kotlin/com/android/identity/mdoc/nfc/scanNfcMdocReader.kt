@@ -9,7 +9,9 @@ import com.android.identity.mdoc.transport.MdocTransportOptions
 import com.android.identity.nfc.scanNfcTag
 import com.android.identity.util.Logger
 import com.android.identity.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.io.bytestring.ByteString
+import kotlin.time.Duration.Companion.seconds
 
 const private val TAG = "scanNfcMdocReader"
 
@@ -37,23 +39,14 @@ data class ScanNfcMdocReaderResult(
  * @param selectConnectionMethod used to choose a connection method if the remote mdoc is using NFC static handover.
  * @param negotiatedHandoverConnectionMethods the connection methods to offer if the remote mdoc is using NFC
  * Negotiated Handover.
- * @return a [ScanNfcMdocReaderResult] on success, `null` if the user dismissed the dialog.
+ * @return a [ScanNfcMdocReaderResult], `null` if the dialog was dismissed or [selectConnectionMethod] returned `null`.
  */
 suspend fun scanNfcMdocReader(
     message: String,
     options: MdocTransportOptions,
     transportFactory: MdocTransportFactory = MdocTransportFactory.Default,
-    selectConnectionMethod: suspend (connectionMethods: List<ConnectionMethod>) -> ConnectionMethod = {
-        connectionMethods -> connectionMethods.first()
-    },
-    negotiatedHandoverConnectionMethods: List<ConnectionMethod> = listOf(
-        ConnectionMethodBle(
-            supportsPeripheralServerMode = false,
-            supportsCentralClientMode = true,
-            peripheralServerModeUuid = null,
-            centralClientModeUuid = UUID.randomUUID()
-        )
-    ),
+    selectConnectionMethod: suspend (connectionMethods: List<ConnectionMethod>) -> ConnectionMethod?,
+    negotiatedHandoverConnectionMethods: List<ConnectionMethod>,
 ): ScanNfcMdocReaderResult? {
     // Start creating transports for Negotiated Handover and start advertising these
     // immediately. This helps with connection time because the holder's device will
@@ -73,21 +66,32 @@ suspend fun scanNfcMdocReader(
     val transportsToClose = negotiatedHandoverTransports.toMutableList()
 
     try {
-        return scanNfcTag(
+        val handoverResult = scanNfcTag(
             message = message,
             tagInteractionFunc = { tag, updateMessage ->
-                val handoverResult = mdocReaderNfcHandover(
+                mdocReaderNfcHandover(
                     tag = tag,
                     negotiatedHandoverConnectionMethods = negotiatedHandoverTransports.map { it.connectionMethod },
-                    selectConnectionMethod = selectConnectionMethod,
                 )
-
+            }
+        )
+        if (handoverResult == null) {
+            return null
+        } else {
+            val connectionMethod = if (handoverResult.connectionMethods.size == 1) {
+                handoverResult.connectionMethods[0]
+            } else {
+                selectConnectionMethod(handoverResult.connectionMethods)
+            }
+            if (connectionMethod == null) {
+                return null
+            } else {
                 // Now that we're connected, close remaining transports and see if one of the warmed-up
                 // transports was chosen (can happen for negotiated handover, never for static handover)
                 //
                 var transport: MdocTransport? = null
                 transportsToClose.forEach {
-                    if (it.connectionMethod == handoverResult.connectionMethod) {
+                    if (it.connectionMethod == connectionMethod) {
                         transport = it
                     } else {
                         Logger.i(TAG, "Closing connection with CM ${it.connectionMethod}")
@@ -97,18 +101,18 @@ suspend fun scanNfcMdocReader(
                 transportsToClose.clear()
                 if (transport == null) {
                     transport = transportFactory.createTransport(
-                        handoverResult.connectionMethod,
+                        connectionMethod,
                         MdocTransport.Role.MDOC_READER,
                         options
                     )
                 }
-                ScanNfcMdocReaderResult(
+                return ScanNfcMdocReaderResult(
                     transport,
                     handoverResult.encodedDeviceEngagement,
                     handoverResult.handover,
                 )
             }
-        )
+        }
     } finally {
         // Close listening transports that went unused.
         transportsToClose.forEach {

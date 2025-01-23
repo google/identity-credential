@@ -1,8 +1,8 @@
 [versions]
 agp = "8.4.0"
-android-compileSdk = "34"
+android-compileSdk = "35"
 android-minSdk = "26"
-android-targetSdk = "34"
+android-targetSdk = "35"
 androidx-activity-compose = "1.9.3"
 androidx-appcompat = "1.6.1"
 androidx-constraintlayout = "2.1.4"
@@ -39,9 +39,6 @@ androidx-lifecycle-ktx = "2.8.2"
 compose-runtime-livedata = "1.6.8"
 accompanist-permissions = "0.34.0"
 work-version = "2.9.0"
-play-services-base = "18.2.0"
-play-services-basement = "18.2.0"
-play-services-tasks = "18.0.2"
 nimbus-sdk = "11.8"
 zxing = "3.5.3"
 gretty = "4.1.4"
@@ -62,6 +59,7 @@ buildconfig = "5.3.5"
 qrose = "1.0.1"
 easyqrscan = "0.2.0"
 androidx-sqlite = "2.5.0-alpha12"
+play-services-identity-credentials = "16.0.0-alpha05"
 
 [libraries]
 face-detection = { module = "com.google.mlkit:face-detection", version.ref = "faceDetection" }
@@ -116,9 +114,6 @@ androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmode
 compose-runtime-livedata = { module = "androidx.compose.runtime:runtime-livedata", version.ref = "compose-runtime-livedata" }
 accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanist-permissions"}
 androidx-work = { module = "androidx.work:work-runtime-ktx", version.ref = "work-version"}
-play-services-base = { module = "com.google.android.gms:play-services-base", version.ref = "play-services-base" }
-play-services-basement = { module = "com.google.android.gms:play-services-basement", version.ref = "play-services-basement" }
-play-services-tasks = { module = "com.google.android.gms:play-services-tasks", version.ref = "play-services-tasks" }
 nimbus-oauth2-oidc-sdk = { module = "com.nimbusds:oauth2-oidc-sdk", version.ref = "nimbus-sdk" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 hsqldb = { module = "org.hsqldb:hsqldb", version.ref = "hsqldb" }
@@ -140,9 +135,7 @@ androidx-sqlite = { module="androidx.sqlite:sqlite", version.ref = "androidx-sql
 androidx-sqlite-framework = { module="androidx.sqlite:sqlite-framework", version.ref = "androidx-sqlite" }
 androidx-sqlite-bundled = { module="androidx.sqlite:sqlite-bundled", version.ref = "androidx-sqlite" }
 postgresql = { module="org.postgresql:postgresql", version.ref = "postgresql" }
-
-[bundles]
-google-play-services = ["play-services-base", "play-services-basement", "play-services-tasks"]
+play-services-identity-credentials = {module = "com.google.android.gms:play-services-identity-credentials", version.ref = "play-services-identity-credentials"}
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

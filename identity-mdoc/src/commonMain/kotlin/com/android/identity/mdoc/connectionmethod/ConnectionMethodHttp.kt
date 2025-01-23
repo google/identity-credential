@@ -34,7 +34,8 @@ class ConnectionMethodHttp(val uri: String): ConnectionMethod() {
 
     override fun toNdefRecord(
         auxiliaryReferences: List<String>,
-        role: MdocTransport.Role
+        role: MdocTransport.Role,
+        skipUuids: Boolean
     ): Pair<NdefRecord, NdefRecord>? {
         Logger.w(TAG, "toNdefRecord() not yet implemented")
         return null

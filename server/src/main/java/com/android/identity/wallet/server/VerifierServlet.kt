@@ -20,7 +20,7 @@ import com.android.identity.crypto.X509CertChain
 import com.android.identity.crypto.javaPrivateKey
 import com.android.identity.crypto.javaPublicKey
 import com.android.identity.documenttype.DocumentTypeRepository
-import com.android.identity.documenttype.DocumentWellKnownRequest
+import com.android.identity.documenttype.DocumentCannedRequest
 import com.android.identity.documenttype.knowntypes.DrivingLicense
 import com.android.identity.documenttype.knowntypes.EUCertificateOfResidence
 import com.android.identity.documenttype.knowntypes.EUPersonalID
@@ -63,7 +63,6 @@ import kotlinx.datetime.DateTimePeriod
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
 import kotlinx.io.bytestring.ByteString
-import kotlinx.io.bytestring.encode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -74,11 +73,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import net.minidev.json.JSONArray
 import net.minidev.json.JSONObject
 import net.minidev.json.JSONStyle
-import org.bouncycastle.asn1.ASN1ObjectIdentifier
-import org.bouncycastle.asn1.x509.ExtendedKeyUsage
-import org.bouncycastle.asn1.x509.Extension
-import org.bouncycastle.asn1.x509.KeyPurposeId
-import org.bouncycastle.asn1.x509.KeyUsage
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.URLEncoder
@@ -455,11 +449,11 @@ lrW+vvdmRHBgS+ss56uWyYor6W7ah9ygBwYFK4EEACI=
     ) {
         val requests = mutableListOf<DocumentTypeWithRequests>()
         for (dt in documentTypeRepo.documentTypes) {
-            if (!dt.sampleRequests.isEmpty()) {
+            if (!dt.cannedRequests.isEmpty()) {
                 val sampleRequests = mutableListOf<SampleRequest>()
                 var dtSupportsMdoc = false
                 var dtSupportsVc = false
-                for (sr in dt.sampleRequests) {
+                for (sr in dt.cannedRequests) {
                     sampleRequests.add(SampleRequest(
                         sr.id,
                         sr.displayName,
@@ -493,10 +487,10 @@ lrW+vvdmRHBgS+ss56uWyYor6W7ah9ygBwYFK4EEACI=
         format: String,
         docType: String,
         requestId: String
-    ): DocumentWellKnownRequest {
+    ): DocumentCannedRequest {
         return when (format) {
-            "mdoc" -> documentTypeRepo.getDocumentTypeForMdoc(docType)!!.sampleRequests.first { it.id == requestId}
-            "vc" -> documentTypeRepo.getDocumentTypeForVc(docType)!!.sampleRequests.first { it.id == requestId}
+            "mdoc" -> documentTypeRepo.getDocumentTypeForMdoc(docType)!!.cannedRequests.first { it.id == requestId}
+            "vc" -> documentTypeRepo.getDocumentTypeForVc(docType)!!.cannedRequests.first { it.id == requestId}
             else -> throw IllegalArgumentException("Unknown format $format")
         }
     }
@@ -1151,7 +1145,7 @@ private fun createSessionTranscriptOpenID4VP(
 
 private fun mdocCalcDcRequestString(
     documentTypeRepository: DocumentTypeRepository,
-    request: DocumentWellKnownRequest,
+    request: DocumentCannedRequest,
     protocol: Protocol,
     nonce: ByteArray,
     origin: String,
@@ -1189,11 +1183,11 @@ private fun mdocCalcDcRequestString(
 }
 
 private fun mdocCalcDcRequestStringPreview(
-        documentTypeRepository: DocumentTypeRepository,
-        request: DocumentWellKnownRequest,
-        nonce: ByteArray,
-        origin: String,
-        readerPublicKey: EcPublicKeyDoubleCoordinate
+    documentTypeRepository: DocumentTypeRepository,
+    request: DocumentCannedRequest,
+    nonce: ByteArray,
+    origin: String,
+    readerPublicKey: EcPublicKeyDoubleCoordinate
     ): String {
     val top = JSONObject()
 
@@ -1225,7 +1219,7 @@ private fun mdocCalcDcRequestStringPreview(
 
 private fun mdocCalcDcRequestStringArf(
     documentTypeRepository: DocumentTypeRepository,
-    request: DocumentWellKnownRequest,
+    request: DocumentCannedRequest,
     nonce: ByteArray,
     origin: String,
     readerKey: EcPrivateKey,
@@ -1285,7 +1279,7 @@ private fun mdocCalcDcRequestStringArf(
 
 private fun mdocCalcPresentationDefinition(
     documentTypeRepository: DocumentTypeRepository,
-    request: DocumentWellKnownRequest
+    request: DocumentCannedRequest
 ): JSONObject {
     val alg = JSONArray()
     alg.addAll(listOf("ES256"))
@@ -1326,7 +1320,7 @@ private fun mdocCalcPresentationDefinition(
 
 private fun sdjwtCalcPresentationDefinition(
     documentTypeRepository: DocumentTypeRepository,
-    request: DocumentWellKnownRequest
+    request: DocumentCannedRequest
 ): JSONObject {
     val alg = JSONArray()
     alg.addAll(listOf("ES256"))

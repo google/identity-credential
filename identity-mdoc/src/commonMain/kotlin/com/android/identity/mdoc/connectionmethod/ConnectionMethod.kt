@@ -31,11 +31,13 @@ abstract class ConnectionMethod {
      * @param auxiliaryReferences A list of references to include in the Alternative Carrier Record
      * @param role If [MdocTransport.Role.MDOC] the generated records will be for the Handover Select message, otherwise
      * for Handover  Request.
+     * @param skipUuids if `true`, UUIDs will not be included in the record
      * @return The NDEF record and the Alternative Carrier record or null if NFC handover is not supported.
      */
     abstract fun toNdefRecord(
         auxiliaryReferences: List<String>,
-        role: MdocTransport.Role
+        role: MdocTransport.Role,
+        skipUuids: Boolean
     ): Pair<NdefRecord, NdefRecord>?
 
     companion object {
@@ -83,16 +85,18 @@ abstract class ConnectionMethod {
          *
          * @param role If [MdocTransport.Role.MDOC] the record is from a Handover Select message,
          * [MdocTransport.Role.MDOC_READER] if from a for Handover Request message.
+         * @param uuid If a UUID in a record isn't available, use this instead.
          * @returns the decoded method or `null` if the method isn't supported.
          */
         fun fromNdefRecord(
             record: NdefRecord,
-            role: MdocTransport.Role
+            role: MdocTransport.Role,
+            uuid: UUID?
         ): ConnectionMethod? {
             if (record.tnf == NdefRecord.Tnf.MIME_MEDIA &&
                 record.type.decodeToString() == Nfc.MIME_TYPE_CONNECTION_HANDOVER_BLE &&
                 record.id.decodeToString() == "0") {
-                return ConnectionMethodBle.fromNdefRecord(record, role)
+                return ConnectionMethodBle.fromNdefRecord(record, role, uuid)
             }
             // TODO: add support for Wifi Aware, NFC, and others.
             Logger.w(TAG, "No support for NDEF record $record")
@@ -139,6 +143,8 @@ abstract class ConnectionMethod {
                 var supportsPeripheralServerMode = false
                 var supportsCentralClientMode = false
                 var uuid: UUID? = null
+                var mac: ByteArray? = null
+                var psm: Int? = null
                 for (ble in bleMethods) {
                     if (ble.supportsPeripheralServerMode) {
                         supportsPeripheralServerMode = true
@@ -158,15 +164,23 @@ abstract class ConnectionMethod {
                         require(!(c != null && uuid != c)) { "UUIDs for both BLE modes are not the same" }
                         require(!(p != null && uuid != p)) { "UUIDs for both BLE modes are not the same" }
                     }
+                    if (mac == null && ble.peripheralServerModeMacAddress != null) {
+                        mac = ble.peripheralServerModeMacAddress
+                    }
+                    if (psm == null && ble.peripheralServerModePsm != null) {
+                        psm = ble.peripheralServerModePsm
+                    }
                 }
-                result.add(
+                val combined =
                     ConnectionMethodBle(
                         supportsPeripheralServerMode,
                         supportsCentralClientMode,
                         if (supportsPeripheralServerMode) uuid else null,
                         if (supportsCentralClientMode) uuid else null
                     )
-                )
+                combined.peripheralServerModeMacAddress = mac
+                combined.peripheralServerModePsm = psm
+                result.add(combined)
             }
             return result
         }
@@ -200,14 +214,16 @@ abstract class ConnectionMethod {
                                 cmBle.centralClientModeUuid
                             )
                         )
-                        result.add(
+                        val peripheralServerMode =
                             ConnectionMethodBle(
                                 true,
                                 false,
                                 cmBle.peripheralServerModeUuid,
                                 null
                             )
-                        )
+                        peripheralServerMode.peripheralServerModeMacAddress = cmBle.peripheralServerModeMacAddress
+                        peripheralServerMode.peripheralServerModePsm = cmBle.peripheralServerModePsm
+                        result.add(peripheralServerMode)
                         continue
                     }
                 }

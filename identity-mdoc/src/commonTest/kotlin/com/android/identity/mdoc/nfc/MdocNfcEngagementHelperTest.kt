@@ -6,6 +6,7 @@ import com.android.identity.mdoc.connectionmethod.ConnectionMethod
 import com.android.identity.mdoc.connectionmethod.ConnectionMethodBle
 import com.android.identity.nfc.CommandApdu
 import com.android.identity.nfc.Nfc
+import com.android.identity.nfc.NfcCommandFailedException
 import com.android.identity.nfc.NfcIsoTag
 import com.android.identity.nfc.ResponseApdu
 import com.android.identity.util.UUID
@@ -35,17 +36,21 @@ class MdocNfcEngagementHelperTest {
 
     private fun getConnectionMethods(): List<ConnectionMethod> {
         // Include all ConnectionMethods that can exist in OOB data
-        val connectionMethods = mutableListOf<ConnectionMethod>()
         val bleUuid = UUID.randomUUID()
-        connectionMethods.add(
+        return listOf(
             ConnectionMethodBle(
-                true,
-                true,
-                bleUuid,
-                bleUuid
+                supportsPeripheralServerMode = false,
+                supportsCentralClientMode = true,
+                peripheralServerModeUuid = null,
+                centralClientModeUuid = bleUuid
+            ),
+            ConnectionMethodBle(
+                supportsPeripheralServerMode = true,
+                supportsCentralClientMode = false,
+                peripheralServerModeUuid = bleUuid,
+                centralClientModeUuid = null
             )
         )
-        return connectionMethods
     }
 
     @Test
@@ -66,10 +71,10 @@ class MdocNfcEngagementHelperTest {
 
         val handoverResult = mdocReaderNfcHandover(
             tag = LoopbackIsoTag(engagementHelper),
-            selectConnectionMethod = { connectionMethods -> connectionMethods[0] },
             negotiatedHandoverConnectionMethods = getConnectionMethods(),
         )
-        assertNotNull(staticHandoverConnectionMethods.find { it == handoverResult.connectionMethod })
+        assertNotNull(handoverResult)
+        assertEquals(staticHandoverConnectionMethods, handoverResult.connectionMethods)
     }
 
     @Test
@@ -88,23 +93,16 @@ class MdocNfcEngagementHelperTest {
             negotiatedHandoverPicker = { methods -> methods.first() }
         )
 
-        val connectionMethods = mutableListOf<ConnectionMethod>()
-        val bleUuid = UUID.randomUUID()
-        connectionMethods.add(
-            ConnectionMethodBle(
-                true,
-                true,
-                bleUuid,
-                bleUuid
-            )
-        )
-
         val handoverResult = mdocReaderNfcHandover(
             tag = LoopbackIsoTag(engagementHelper),
-            selectConnectionMethod = { connectionMethods -> connectionMethods[0] },
             negotiatedHandoverConnectionMethods = negotiatedHandoverConnectionMethods,
         )
-        assertNotNull(negotiatedHandoverConnectionMethods.find { it == handoverResult.connectionMethod })
+        assertNotNull(handoverResult)
+        assertEquals(1, handoverResult.connectionMethods.size)
+        assertEquals(
+            negotiatedHandoverConnectionMethods.first(),
+            handoverResult.connectionMethods.first()
+        )
     }
 
     private fun testNfcEngagementHelper(
@@ -126,7 +124,7 @@ class MdocNfcEngagementHelperTest {
     fun testWrongApplicationIdSelected() {
         var (handoverSuccess, handoverError) = testNfcEngagementHelper { tag ->
             // Off by one from the NDEF AID
-            assertFailsWith(IllegalStateException::class) {
+            assertFailsWith(NfcCommandFailedException::class) {
                 tag.selectApplication(ByteString("D2760000850102".fromHex()))
             }
         }
@@ -142,7 +140,7 @@ class MdocNfcEngagementHelperTest {
     fun testFiledIdBeforeApplicationSelectSelected() {
         var (handoverSuccess, handoverError) = testNfcEngagementHelper { tag ->
             // Fails because application is not yet selected
-            assertFailsWith(IllegalStateException::class) {
+            assertFailsWith(NfcCommandFailedException::class) {
                 tag.selectFile(Nfc.NDEF_CAPABILITY_CONTAINER_FILE_ID)
             }
         }
@@ -159,7 +157,7 @@ class MdocNfcEngagementHelperTest {
         var (handoverSuccess, handoverError) = testNfcEngagementHelper { tag ->
             tag.selectApplication(Nfc.NDEF_APPLICATION_ID)
             // Fails because the FileID is unknown
-            assertFailsWith(IllegalStateException::class) {
+            assertFailsWith(NfcCommandFailedException::class) {
                 tag.selectFile(42)
             }
         }

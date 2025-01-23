@@ -10,9 +10,9 @@ package com.android.identity.documenttype
  * @param mdocRequest the request for a mdoc, if defined.
  * @param vcRequest the request for a VC, if defined.
  */
-data class DocumentWellKnownRequest(
+data class DocumentCannedRequest(
     val id: String,
     val displayName: String,
-    val mdocRequest: MdocRequest?,
-    val vcRequest: VcRequest?
+    val mdocRequest: MdocCannedRequest?,
+    val vcRequest: VcCannedRequest?
 )

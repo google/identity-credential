@@ -9,23 +9,18 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.compose.runtime.mutableStateOf
 import com.android.identity.android.mdoc.deviceretrieval.VerificationHelper
-import com.android.identity.android.mdoc.transport.DataTransportOptions
 import com.android.identity.cbor.Bstr
 import com.android.identity.cbor.Cbor
 import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.javaX509Certificate
-import com.android.identity.crypto.javaX509Certificates
 import com.android.identity.documenttype.DocumentAttributeType
 import com.android.identity.documenttype.DocumentTypeRepository
-import com.android.identity.documenttype.DocumentWellKnownRequest
-import com.android.identity.documenttype.MdocNamespace
+import com.android.identity.documenttype.DocumentCannedRequest
 import com.android.identity.mdoc.connectionmethod.ConnectionMethod
-import com.android.identity.mdoc.connectionmethod.ConnectionMethodBle
 import com.android.identity.mdoc.request.DeviceRequestGenerator
 import com.android.identity.mdoc.response.DeviceResponseParser
 import com.android.identity.trustmanagement.TrustManager
 import com.android.identity.util.Logger
-import com.android.identity.util.UUID
 import kotlinx.datetime.Clock
 
 class ReaderModel(
@@ -53,7 +48,7 @@ class ReaderModel(
     private val vibrator = context.getSystemService(Vibrator::class.java)
 
     private var activityForNfcReaderMode: Activity? = null
-    private var requestToUse: DocumentWellKnownRequest? = null
+    private var requestToUse: DocumentCannedRequest? = null
     private var activityToUse: Activity? = null
     private var trustManagerToUse: TrustManager? = null
 
@@ -119,14 +114,14 @@ class ReaderModel(
         phase.value = Phase.WAITING_FOR_CONNECTION
     }
 
-    fun updateRequest(request: DocumentWellKnownRequest) {
+    fun updateRequest(request: DocumentCannedRequest) {
         requestToUse = request
     }
 
     // Should be called to start reading
     fun startRequest(
         activity: Activity,
-        request: DocumentWellKnownRequest,
+        request: DocumentCannedRequest,
         trustManager: TrustManager
     ) {
         releaseResources()

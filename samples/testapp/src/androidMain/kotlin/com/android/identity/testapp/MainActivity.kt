@@ -27,6 +27,10 @@ class MainActivity : FragmentActivity() {
             Security.addProvider(BouncyCastleProvider())
             bcInitialized = true
         }
+
+        init {
+            initBouncyCastle()
+        }
     }
 
     private val app = App()

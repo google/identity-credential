@@ -32,7 +32,7 @@ interface MdocTransportFactory {
     }
 }
 
-expect fun defaultMdocTransportFactoryCreateTransport(
+internal expect fun defaultMdocTransportFactoryCreateTransport(
     connectionMethod: ConnectionMethod,
     role: MdocTransport.Role,
     options: MdocTransportOptions

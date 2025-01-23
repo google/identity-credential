@@ -23,4 +23,15 @@
     <!-- ShowQrCodeDialog -->
     <string name="show_qr_code_dialog_qr_content_description">QR code image</string>
 
+    <!-- Presentment -->
+    <string name="presentment_connecting_to_reader">Connecting to reader</string>
+    <string name="presentment_success">The information was shared</string>
+    <string name="presentment_error">Something went wrong</string>
+    <string name="presentment_canceled">Presentment was canceled</string>
+    <string name="presentment_waiting_for_request">Waiting for request</string>
+    <string name="presentment_document_picker_title">Select Document</string>
+    <string name="presentment_document_picker_text">Multiple documents can fulfill the request. Please select one</string>
+    <string name="presentment_document_picker_cancel">Cancel</string>
+    <string name="presentment_document_picker_continue">Continue</string>
+
 </resources>
