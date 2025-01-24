@@ -1,10 +1,9 @@
 package com.android.identity.issuance
 
 
+import com.android.identity.android.direct_access.DirectAccessCredential
 import com.android.identity.document.Document
-import com.android.identity.issuance.DocumentExtensions.issuingAuthorityIdentifier
 import com.android.identity.issuance.remote.WalletServerProvider
-import java.lang.IllegalArgumentException
 
 /**
  * A set of extensions on the [Document] type for working with the [IssuingAuthority]
@@ -27,6 +26,22 @@ object DocumentExtensions {
     var Document.documentIdentifier: String
         get() = applicationData.getString("credentialIdentifier")
         set(value) { applicationData.setString("credentialIdentifier", value) }
+
+    /** The slot in the Direct Access applet this document uses */
+    var Document.documentSlot: Int
+        get() = applicationData.getNumber("documentSlot").toInt()
+        set(value) { applicationData.setNumber("documentSlot", value.toLong()) }
+
+    /** Returns whether or not the document has any [DirectAccessCredential]s associated with it */
+    val Document.hasDirectAccessCredentials: Boolean
+        get() {
+            for (credential in (pendingCredentials + certifiedCredentials)) {
+                if (credential is DirectAccessCredential) {
+                    return true
+                }
+            }
+            return false
+        }
 
     /**
      * The number of times a [DocumentConfiguration] has been downloaded from the issuer.

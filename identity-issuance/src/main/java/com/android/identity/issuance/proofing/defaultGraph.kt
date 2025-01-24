@@ -69,6 +69,21 @@ fun defaultGraph(
                 eId("germanEidCard", "https://test.governikus-eid.de/AusweisAuskunft/WebServiceRequesterServlet")
             }
         }
+        if (walletApplicationCapabilities.directAccessSupported) {
+            choice(
+                id = "directAccess",
+                message = "Would you like to be able to present this document when the device is powered-off?",
+                assets = mapOf(),
+                acceptButtonText = "Continue"
+            ) {
+                on(id = "yes", text = "Yes") {
+
+                }
+                on(id = "no", text = "No") {
+
+                }
+            }
+        }
         if (developerModeEnabled) {
             choice(
                 id = "devmode_sa",

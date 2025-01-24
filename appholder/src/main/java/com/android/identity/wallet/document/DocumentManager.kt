@@ -7,19 +7,21 @@ import android.graphics.BitmapFactory
 import co.nstant.`in`.cbor.CborBuilder
 import co.nstant.`in`.cbor.model.DataItem
 import co.nstant.`in`.cbor.model.UnicodeString
+import com.android.identity.android.direct_access.DirectAccess
+import com.android.identity.android.direct_access.DirectAccessCredential
 import com.android.identity.cbor.Cbor
 import com.android.identity.document.Document
 import com.android.identity.document.NameSpacedData
 import com.android.identity.documenttype.DocumentAttributeType
+import com.android.identity.wallet.HolderApp
+import com.android.identity.wallet.R
 import com.android.identity.wallet.selfsigned.SelfSignedDocumentData
 import com.android.identity.wallet.util.Field
 import com.android.identity.wallet.util.FormatUtil
-import com.android.identity.wallet.HolderApp
 import com.android.identity.wallet.util.ProvisioningUtil
 import com.android.identity.wallet.util.ProvisioningUtil.Companion.toDocumentInformation
 import com.android.identity.wallet.util.log
 import com.android.identity.wallet.util.logError
-import com.android.identity.wallet.R
 import com.android.mdl.app.credman.IdentityCredentialEntry
 import com.android.mdl.app.credman.IdentityCredentialField
 import com.android.mdl.app.credman.IdentityCredentialRegistry
@@ -30,6 +32,7 @@ import java.util.Locale
 class DocumentManager private constructor(private val context: Context) {
     val client = IdentityCredentialManager.Companion.getClient(context)
     companion object {
+        private const val TAG = "DocumentManager"
 
         @SuppressLint("StaticFieldLeak")
         @Volatile
@@ -133,11 +136,27 @@ class DocumentManager private constructor(private val context: Context) {
     }
 
 
-    fun deleteCredentialByName(documentName: String) {
-        val document = getDocumentInformation(documentName)
-        document?.let {
+    fun deleteDocumentByName(documentName: String) {
+        val documentInformation = getDocumentInformation(documentName)
+        var documentHasDirectAccessCreds = false
+        var documentSlot = 0
+        documentInformation?.let {
             val documentStore = ProvisioningUtil.getInstance(context).documentStore
+            documentStore.lookupDocument(documentName)?.let {
+                val certifiedCredentials = it.certifiedCredentials
+                val pendingCredentials = it.pendingCredentials
+                for (credential in (pendingCredentials + certifiedCredentials)) {
+                    if (credential is DirectAccessCredential) {
+                        documentHasDirectAccessCreds = true
+                        documentSlot = credential.documentSlot
+                        break
+                    }
+                }
+            }
             documentStore.deleteDocument(documentName)
+        }
+        if (documentHasDirectAccessCreds) {
+            DirectAccess.clearDocumentSlot(documentSlot)
         }
         registerDocuments()
     }
@@ -345,6 +364,7 @@ class DocumentManager private constructor(private val context: Context) {
     fun refreshCredentials(documentName: String) {
         val documentInformation = requireNotNull(getDocumentInformation(documentName))
         val document = requireNotNull(getDocumentByName(documentName))
-        ProvisioningUtil.getInstance(context).refreshCredentials(document, documentInformation.docType)
+        ProvisioningUtil.getInstance(context).refreshMdocCredentials(document, documentInformation.docType)
+        ProvisioningUtil.getInstance(context).refreshDaCredentials(document, documentInformation.docType, 0)
     }
 }

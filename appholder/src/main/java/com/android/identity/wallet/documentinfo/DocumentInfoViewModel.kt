@@ -7,6 +7,7 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.android.identity.wallet.HolderApp
 import com.android.identity.wallet.composables.toCardArt
 import com.android.identity.wallet.document.DocumentInformation
 import com.android.identity.wallet.document.DocumentManager
@@ -43,7 +44,7 @@ class DocumentInfoViewModel(
     }
 
     fun confirmDocumentDelete() {
-        documentManager.deleteCredentialByName(args.documentName)
+        documentManager.deleteDocumentByName(args.documentName)
         _state.update { it.copy(isDeleted = true, isDeletingPromptShown = false) }
     }
 
@@ -72,7 +73,8 @@ class DocumentInfoViewModel(
                     provisioningDate = documentInformation.dateProvisioned,
                     isSelfSigned = documentInformation.selfSigned,
                     lastTimeUsedDate = documentInformation.lastTimeUsed,
-                    authKeys = documentInformation.authKeys.asScreenStateKeys()
+                    authKeys = documentInformation.authKeys.asScreenStateKeys(),
+                    daKeys = documentInformation.daCreds.asScreenStateDaKeys()
                 )
             }
         }
@@ -90,6 +92,20 @@ class DocumentInfoViewModel(
                 keyPurposes = keyData.keyPurposes,
                 ecCurve = keyData.ecCurve,
                 isHardwareBacked = keyData.isHardwareBacked,
+                secureAreaDisplayName = keyData.secureAreaDisplayName
+            )
+        }
+    }
+
+    private fun List<DocumentInformation.DirectAccessCredInfo>.asScreenStateDaKeys(): List<DocumentInfoScreenState.DaKeyInformation> {
+        return map { keyData ->
+            DocumentInfoScreenState.DaKeyInformation(
+                counter = keyData.counter,
+                validFrom = keyData.validFrom,
+                validUntil = keyData.validUntil,
+                domain = keyData.domain,
+                issuerDataBytesCount = keyData.issuerDataBytesCount,
+                usagesCount = keyData.usagesCount,
                 secureAreaDisplayName = keyData.secureAreaDisplayName
             )
         }

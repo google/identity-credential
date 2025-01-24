@@ -42,6 +42,7 @@ class TestIssuingAuthority: SimpleIssuingAuthority(EphemeralStorageEngine(), {})
                     NameSpacedData.Builder().build(),
                 ),
                 sdJwtVcDocumentConfiguration = null,
+                directAccessConfiguration = null
             ),
             maxUsesPerCredentials = 1,
             minCredentialValidityMillis = 1000L,
@@ -118,6 +119,7 @@ class TestIssuingAuthority: SimpleIssuingAuthority(EphemeralStorageEngine(), {})
                 NameSpacedData.Builder().build(),
             ),
             sdJwtVcDocumentConfiguration = null,
+            directAccessConfiguration = null
         )
     }
 

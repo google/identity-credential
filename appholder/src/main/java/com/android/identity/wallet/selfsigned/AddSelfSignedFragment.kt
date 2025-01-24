@@ -43,7 +43,8 @@ class AddSelfSignedFragment : Fragment() {
             validityInDays = state.validityInDays,
             minValidityInDays = state.minValidityInDays,
             numberMso = state.numberOfMso,
-            maxUseMso = state.maxUseOfMso
+            maxUseMso = state.maxUseOfMso,
+            provisionDirectAccess = state.provisionDirectAccessCredential,
         )
         val destination = AddSelfSignedFragmentDirections
             .actionAddSelfSignedToSelfSignedDetails(provisionInfo)

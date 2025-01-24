@@ -362,6 +362,7 @@ class ProvisioningViewModel : ViewModel() {
         return when (credentialFormat) {
             CredentialFormat.MDOC_MSO -> documentConfiguration.mdocConfiguration?.docType == docType
             CredentialFormat.SD_JWT_VC -> documentConfiguration.sdJwtVcDocumentConfiguration != null
+            CredentialFormat.DirectAccess -> documentConfiguration.directAccessConfiguration?.docType == docType
         }
     }
 }

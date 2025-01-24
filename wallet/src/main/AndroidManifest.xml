@@ -9,6 +9,7 @@
         android:name="android.hardware.nfc"
         android:required="true" />
 
+    <uses-permission android:name="Manifest.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
@@ -117,6 +118,15 @@
                 android:resource="@xml/log_file_paths" />
         </provider>
 
+        <receiver
+            android:name=".dynamicregistration.PowerOnReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".NfcEngagementHandler"
             android:exported="true"
@@ -129,6 +139,20 @@
             <meta-data
                 android:name="android.nfc.cardemulation.host_apdu_service"
                 android:resource="@xml/nfc_engagement_apdu_service" />
+        </service>
+
+        <service
+            android:name=".dynamicregistration.OffHostNfcPresentationHandler"
+            android:exported="true"
+            android:label="@string/nfc_engagement_service_desc"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.OFF_HOST_APDU_SERVICE" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.nfc.cardemulation.off_host_apdu_service"
+                android:resource="@xml/off_host_nfc_engagement_apdu_service" />
         </service>
 
     </application>

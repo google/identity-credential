@@ -32,6 +32,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.MutableLiveData
 import androidx.navigation.compose.rememberNavController
 import com.android.identity_credential.wallet.credentialoffer.extractCredentialIssuerData
+import com.android.identity_credential.wallet.dynamicregistration.AidRegistrationUtil
 import com.android.identity_credential.wallet.navigation.WalletDestination
 import com.android.identity_credential.wallet.navigation.WalletNavigation
 import com.android.identity_credential.wallet.navigation.navigateTo
@@ -89,6 +90,8 @@ class MainActivity : FragmentActivity() {
         permissionTracker.updatePermissions()
         // handle intents with schema openid-credential-offer://
         handleOid4vciCredentialOfferIntent(intent)
+        // route aids to host by default
+        AidRegistrationUtil.routeAidsToHost(this)
 
         setContent {
             IdentityCredentialTheme {

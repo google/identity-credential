@@ -8,6 +8,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
@@ -25,6 +26,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import com.android.identity.android.direct_access.DirectAccess
 import com.android.identity.android.securearea.AndroidKeystoreSecureArea
 import com.android.identity.android.securearea.cloud.CloudSecureArea
 import com.android.identity.android.storage.AndroidStorageEngine
@@ -52,7 +54,9 @@ import com.android.identity.securearea.software.SoftwareSecureArea
 import com.android.identity.storage.StorageEngine
 import com.android.identity.trustmanagement.TrustManager
 import com.android.identity.trustmanagement.TrustPoint
+import com.android.identity.util.AndroidInitializer
 import com.android.identity.util.Logger
+import com.android.identity_credential.wallet.dynamicregistration.PowerOffReceiver
 import com.android.identity_credential.wallet.logging.EventLogger
 import com.android.identity_credential.wallet.util.toByteArray
 import kotlinx.datetime.Clock
@@ -75,6 +79,7 @@ class WalletApplication : Application() {
 
         const val CREDENTIAL_DOMAIN_MDOC = "mdoc/MSO"
         const val CREDENTIAL_DOMAIN_SD_JWT_VC = "SD-JWT"
+        const val CREDENTIAL_DOMAIN_DIRECT_ACCESS = "mdoc/direct-access"
 
         // OID4VCI url scheme used for filtering OID4VCI Urls from all incoming URLs (deep links or QR)
         const val OID4VCI_CREDENTIAL_OFFER_URL_SCHEME = "openid-credential-offer://"
@@ -116,6 +121,7 @@ class WalletApplication : Application() {
     private lateinit var androidKeystoreSecureArea: AndroidKeystoreSecureArea
     private lateinit var softwareSecureArea: SoftwareSecureArea
     lateinit var walletServerProvider: WalletServerProvider
+    private lateinit var powerOffReceiver: PowerOffReceiver
 
     override fun onCreate() {
         super.onCreate()
@@ -124,6 +130,10 @@ class WalletApplication : Application() {
             return
         }
         Logger.d(TAG, "onCreate")
+
+        // warm up Direct Access transport to prevent delays later
+        AndroidInitializer.initialize(applicationContext)
+        DirectAccess.warmupTransport()
 
         // This is needed to prefer BouncyCastle bundled with the app instead of the Conscrypt
         // based implementation included in the OS itself.
@@ -309,6 +319,14 @@ class WalletApplication : Application() {
                 ExistingPeriodicWorkPolicy.KEEP,
                 workRequest
             )
+
+        powerOffReceiver = PowerOffReceiver()
+        registerReceiver(powerOffReceiver, IntentFilter(Intent.ACTION_SHUTDOWN))
+    }
+
+    override fun onTerminate() {
+        super.onTerminate()
+        unregisterReceiver(powerOffReceiver)
     }
 
     class SyncCredentialWithIssuerWorker(
@@ -432,7 +450,8 @@ class WalletApplication : Application() {
             generatedAt = now,
             androidKeystoreAttestKeyAvailable = keystoreCapabilities.attestKeySupported,
             androidKeystoreStrongBoxAvailable = keystoreCapabilities.strongBoxSupported,
-            androidIsEmulator = isProbablyRunningOnEmulator
+            androidIsEmulator = isProbablyRunningOnEmulator,
+            directAccessSupported = DirectAccess.isDirectAccessSupported,
         )
     }
 

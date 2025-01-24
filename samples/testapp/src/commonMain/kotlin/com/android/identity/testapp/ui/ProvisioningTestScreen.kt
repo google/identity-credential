@@ -38,7 +38,8 @@ fun ProvisioningTestScreen() {
                                     generatedAt = Clock.System.now(),
                                     androidKeystoreAttestKeyAvailable = true,
                                     androidKeystoreStrongBoxAvailable = true,
-                                    androidIsEmulator = platformIsEmulator
+                                    androidIsEmulator = platformIsEmulator,
+                                    directAccessSupported = false,
                                 )
                             }
 

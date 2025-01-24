@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!--
-  ~ Copyright (C) 2019 Google Inc.
+  ~ Copyright (C) 2025 Google Inc.
   ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
@@ -16,11 +16,10 @@
   ~ limitations under the License.
   -->
 
-<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:description="@string/nfc_engagement_service_desc"
-    android:requireDeviceUnlock="true">
+<offhost-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/nfc_engagement_service_desc">
 
-    <aid-group android:description="@string/engagement_aid_group_desc" android:category="other">
+    <aid-group android:description="@string/off_host_engagement_aid_group_desc" android:category="other">
     </aid-group>
 
-</host-apdu-service>
+</offhost-apdu-service>

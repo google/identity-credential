@@ -37,7 +37,10 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.android.identity.android.direct_access.DirectAccess
 import com.android.identity.document.DocumentStore
+import com.android.identity.issuance.DocumentExtensions.documentSlot
+import com.android.identity.issuance.DocumentExtensions.hasDirectAccessCredentials
 import com.android.identity_credential.wallet.R
 import com.android.identity_credential.wallet.SettingsModel
 import com.android.identity_credential.wallet.WalletApplication
@@ -64,6 +67,12 @@ fun SettingsScreen(
                 Button(
                     onClick = {
                         for (documentId in documentStore.listDocuments()) {
+                            documentStore.lookupDocument(documentId)?.let {
+                                if (it.hasDirectAccessCredentials) {
+                                    DirectAccess.clearDocumentSlot(it.documentSlot)
+                                }
+                            }
+
                             documentStore.deleteDocument(documentId)
                         }
                         confirmServerChange!!.onConfirm()

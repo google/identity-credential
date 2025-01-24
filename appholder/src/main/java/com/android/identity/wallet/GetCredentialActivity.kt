@@ -126,7 +126,7 @@ class GetCredentialActivity : FragmentActivity() {
         val nameSpacedData = document!!.applicationData.getNameSpacedData("documentData")
 
         val credential = document.findCredential(
-            ProvisioningUtil.CREDENTIAL_DOMAIN,
+            ProvisioningUtil.MDOC_CREDENTIAL_DOMAIN,
             Clock.System.now()
         ) as MdocCredential? ?: throw IllegalStateException("No credential")
         val staticAuthData = StaticAuthDataParser(credential.issuerProvidedData).parse()

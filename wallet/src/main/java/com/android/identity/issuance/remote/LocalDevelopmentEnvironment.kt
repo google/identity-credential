@@ -178,6 +178,20 @@ internal class LocalDevelopmentEnvironment(
                 )
                 "img_erika_portrait.jpf" ->
                     ByteString(getRawResourceAsBytes(R.raw.img_erika_portrait))
+                "img_erika_portrait_compressed.jpf" -> {
+                    val encodedPortrait = getRawResourceAsBytes(R.raw.img_erika_portrait)
+                    val options = BitmapFactory.Options()
+                    options.inMutable = true
+                    val bitmap = BitmapFactory.decodeByteArray(
+                        encodedPortrait,
+                        0,
+                        encodedPortrait.size,
+                        options)
+                    val baos = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 50, baos)
+                    val encodedModifiedPortrait: ByteArray = baos.toByteArray()
+                    ByteString(encodedModifiedPortrait)
+                }
                 "img_erika_signature.jpf" ->
                     ByteString(getRawResourceAsBytes(R.raw.img_erika_signature))
                 "img_erika_portrait.jpg" ->
@@ -185,6 +199,24 @@ internal class LocalDevelopmentEnvironment(
                         R.drawable.img_erika_portrait,
                         Bitmap.CompressFormat.JPEG
                     )
+                "img_erika_portrait_compressed.jpg" ->
+                {
+                    val encodedPortrait = bitmapData(
+                        R.drawable.img_erika_portrait,
+                        Bitmap.CompressFormat.JPEG
+                    ).toByteArray()
+                    val options = BitmapFactory.Options()
+                    options.inMutable = true
+                    val bitmap = BitmapFactory.decodeByteArray(
+                        encodedPortrait,
+                        0,
+                        encodedPortrait.size,
+                        options)
+                    val baos = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 50, baos)
+                    val encodedModifiedPortrait: ByteArray = baos.toByteArray()
+                    ByteString(encodedModifiedPortrait)
+                }
                 "img_erika_signature.jpg" ->
                     bitmapData(
                         R.drawable.img_erika_signature,
@@ -198,6 +230,8 @@ internal class LocalDevelopmentEnvironment(
             return when(name) {
                 "ds_private_key.pem" -> getRawResourceAsString(R.raw.ds_private_key)
                 "ds_certificate.pem" -> getRawResourceAsString(R.raw.ds_certificate)
+                "owf_identity_credential_reader_cert.pem" ->
+                    getRawResourceAsString(R.raw.owf_identity_credential_reader_cert)
                 "cloud_secure_area/certificate.pem" ->
                     getRawResourceAsString(R.raw.csa_certificate)
                 "utopia_local/tos.html" ->

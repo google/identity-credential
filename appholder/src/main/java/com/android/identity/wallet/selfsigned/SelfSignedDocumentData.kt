@@ -21,5 +21,6 @@ data class ProvisionInfo(
     val validityInDays: Int,
     val minValidityInDays: Int,
     val numberMso: Int,
-    val maxUseMso: Int
+    val maxUseMso: Int,
+    val provisionDirectAccess: Boolean,
 ) : Parcelable

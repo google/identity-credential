@@ -2,6 +2,10 @@ package com.android.identity.wallet
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import com.android.identity.android.direct_access.DirectAccess
+import com.android.identity.android.direct_access.DirectAccessCredential
 import com.android.identity.android.securearea.AndroidKeystoreSecureArea
 import com.android.identity.android.storage.AndroidStorageEngine
 import com.android.identity.android.util.AndroidLogPrinter
@@ -22,17 +26,19 @@ import com.android.identity.trustmanagement.TrustManager
 import com.android.identity.trustmanagement.TrustPoint
 import com.android.identity.util.Logger
 import com.android.identity.wallet.document.KeysAndCertificates
+import com.android.identity.wallet.dynamicregistration.PowerOffReceiver
 import com.android.identity.wallet.util.PeriodicKeysRefreshWorkRequest
 import com.android.identity.wallet.util.PreferencesHelper
 import com.google.android.material.color.DynamicColors
-import kotlinx.io.files.Path
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.io.ByteArrayInputStream
 import java.security.Security
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import kotlinx.io.files.Path
 
 class HolderApp: Application() {
+    private lateinit var powerOffReceiver: PowerOffReceiver
 
     private val documentTypeRepository by lazy {
         DocumentTypeRepository()
@@ -70,6 +76,13 @@ class HolderApp: Application() {
         KeysAndCertificates.getTrustedReaderCertificates(this).forEach {
             trustManagerInstance.addTrustPoint(TrustPoint(X509Cert(it.encoded)))
         }
+        powerOffReceiver = PowerOffReceiver()
+        registerReceiver(powerOffReceiver, IntentFilter(Intent.ACTION_SHUTDOWN))
+    }
+
+    override fun onTerminate() {
+        super.onTerminate()
+        unregisterReceiver(powerOffReceiver)
     }
 
     companion object {
@@ -77,10 +90,18 @@ class HolderApp: Application() {
         lateinit var documentTypeRepositoryInstance: DocumentTypeRepository
         lateinit var trustManagerInstance: TrustManager
         lateinit var certificateStorageEngineInstance: StorageEngine
+        // Use lazy access to prevent delays at app startup when DirectAccessOmapiTransport needs to
+        // wait for connection to SE.
+        val isDirectAccessSupported by lazy {
+            DirectAccess.isDirectAccessSupported
+        }
+
         fun createDocumentStore(
             context: Context,
-            secureAreaRepository: SecureAreaRepository
+            secureAreaRepository: SecureAreaRepository,
         ): DocumentStore {
+            DirectAccess.warmupTransport()
+
             val storageFile = Path(PreferencesHelper.getKeystoreBackedStorageLocation(context).path)
             val storageEngine = AndroidStorageEngine.Builder(context, storageFile).build()
 
@@ -90,11 +111,17 @@ class HolderApp: Application() {
             secureAreaRepository.addImplementation(androidKeystoreSecureArea)
             secureAreaRepository.addImplementation(softwareSecureArea)
 
-            var credentialFactory = CredentialFactory()
+            val credentialFactory = CredentialFactory()
             credentialFactory.addCredentialImplementation(MdocCredential::class) {
                 document, dataItem -> MdocCredential(document, dataItem)
             }
-            return DocumentStore(storageEngine, secureAreaRepository, credentialFactory)
+            credentialFactory.addCredentialImplementation(DirectAccessCredential::class) {
+                document, dataItem -> DirectAccessCredential(document, dataItem)
+            }
+            return DocumentStore(
+                storageEngine,
+                secureAreaRepository,
+                credentialFactory)
         }
     }
 
