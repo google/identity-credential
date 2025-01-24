@@ -5,7 +5,7 @@ import com.android.identity.device.DeviceAssertion
 import com.android.identity.flow.annotation.FlowMethod
 import com.android.identity.flow.annotation.FlowState
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.CredentialConfiguration
 import com.android.identity.issuance.CredentialFormat
 import com.android.identity.issuance.CredentialRequest
@@ -13,6 +13,7 @@ import com.android.identity.issuance.KeyPossessionChallenge
 import com.android.identity.issuance.KeyPossessionProof
 import com.android.identity.issuance.RequestCredentialsFlow
 import com.android.identity.issuance.validateDeviceAssertionBindingKeys
+import com.android.identity.issuance.wallet.AuthenticationState
 import com.android.identity.issuance.wallet.ClientRecord
 import com.android.identity.issuance.wallet.fromCbor
 import com.android.identity.util.toBase64Url
@@ -54,9 +55,8 @@ class RequestCredentialsUsingProofOfPossession(
         if (credentialRequests != null) {
             throw IllegalStateException("Credentials were already sent")
         }
-        val storage = env.getInterface(Storage::class)!!
-        val clientRecord = ClientRecord.fromCbor(
-            storage.get("Clients", "", clientId)!!.toByteArray())
+        val storage = env.getTable(AuthenticationState.clientTableSpec)
+        val clientRecord = ClientRecord.fromCbor(storage.get(clientId)!!.toByteArray())
         validateDeviceAssertionBindingKeys(
             env = env,
             deviceAttestation = clientRecord.deviceAttestation,

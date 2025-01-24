@@ -34,7 +34,7 @@ object CredmanRegistry {
         return dataElementName
     }
 
-    fun registerCredentials(
+    suspend fun registerCredentials(
         context: Context,
         documentStore: DocumentStore,
         documentTypeRepository: DocumentTypeRepository
@@ -43,10 +43,7 @@ object CredmanRegistry {
         val entries = mutableListOf<IdentityCredentialEntry>()
         for (documentId in documentStore.listDocuments()) {
 
-            val document = documentStore.lookupDocument(documentId)
-            if (document == null) {
-                continue
-            }
+            val document = documentStore.lookupDocument(documentId) ?: continue
             val docConf = document.documentConfiguration
             if (docConf.mdocConfiguration == null) {
                 return

@@ -28,7 +28,7 @@ import com.android.identity.securearea.cloud.CloudSecureAreaProtocol.RegisterRes
 import com.android.identity.securearea.cloud.CloudSecureAreaProtocol.RegisterResponse1
 import com.android.identity.securearea.software.SoftwareCreateKeySettings
 import com.android.identity.securearea.software.SoftwareSecureArea
-import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.ephemeral.EphemeralStorage
 import com.android.identity.util.AndroidAttestationExtensionParser
 import com.android.identity.util.Logger
 import com.android.identity.util.fromHex
@@ -38,6 +38,7 @@ import kotlinx.datetime.DateTimePeriod
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
+import kotlinx.io.bytestring.ByteString
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.InvalidKeyException
@@ -445,7 +446,7 @@ class CloudSecureAreaServer(
         return Pair(200, encryptedResponse0.toCbor())
     }
 
-    private fun doCreateKeyRequest1(
+    private suspend fun doCreateKeyRequest1(
         request1: CloudSecureAreaProtocol.CreateKeyRequest1,
         remoteHost: String,
         e2eeState: E2EEState
@@ -461,8 +462,8 @@ class CloudSecureAreaServer(
             throw IllegalStateException("Error verifying signature")
         }
         state.localKey = request1.localKeyAttestation.certificates.get(0).ecPublicKey.toCoseKey()
-        val storageEngine = EphemeralStorageEngine()
-        val secureArea = SoftwareSecureArea(storageEngine)
+        val storage = EphemeralStorage()
+        val secureArea = SoftwareSecureArea.create(storage)
         val builder = SoftwareCreateKeySettings.Builder()
             .setValidityPeriod(
                 Instant.fromEpochMilliseconds(state.validFromMillis),
@@ -493,7 +494,7 @@ class CloudSecureAreaServer(
                 )
                 .build()
 
-        state.cloudKeyStorage = storageEngine.toCbor()
+        state.cloudKeyStorage = storage.serialize().toByteArray()
         val response1 = CreateKeyResponse1(
             X509CertChain(listOf(attestationCert) + attestationKeyCertification.certificates),
             encryptCreateKeyState(state)
@@ -544,7 +545,7 @@ class CloudSecureAreaServer(
         return Pair(200, encryptedResponse0.toCbor())
     }
 
-    private fun doSignRequest1(
+    private suspend fun doSignRequest1(
         request1: CloudSecureAreaProtocol.SignRequest1,
         remoteHost: String,
         e2eeState: E2EEState
@@ -604,8 +605,8 @@ class CloudSecureAreaServer(
                 }
             }
 
-            val storageEngine = EphemeralStorageEngine.fromCbor(state.keyContext!!.cloudKeyStorage!!)
-            val secureArea = SoftwareSecureArea(storageEngine)
+            val storage = EphemeralStorage.deserialize(ByteString(state.keyContext!!.cloudKeyStorage!!))
+            val secureArea = SoftwareSecureArea.create(storage)
             val signature = secureArea.sign(
                 "CloudKey",
                 Algorithm.ES256,
@@ -693,7 +694,7 @@ class CloudSecureAreaServer(
         return Pair(200, encryptedResponse0.toCbor())
     }
 
-    private fun doKeyAgreementRequest1(
+    private suspend fun doKeyAgreementRequest1(
         request1: CloudSecureAreaProtocol.KeyAgreementRequest1,
         remoteHost: String,
         e2eeState: E2EEState
@@ -755,8 +756,9 @@ class CloudSecureAreaServer(
             }
 
 
-            val storageEngine = EphemeralStorageEngine.fromCbor(state.keyContext!!.cloudKeyStorage!!)
-            val secureArea = SoftwareSecureArea(storageEngine)
+            val storage = EphemeralStorage.deserialize(
+                ByteString(state.keyContext!!.cloudKeyStorage!!))
+            val secureArea = SoftwareSecureArea.create(storage)
             var Zab = secureArea.keyAgreement(
                     "CloudKey",
                     state.otherPublicKey!!.ecPublicKey,
@@ -793,7 +795,7 @@ class CloudSecureAreaServer(
         return Crypto.encrypt(Algorithm.A128GCM, e2eeState.skCloud!!, iv.array(), messagePlaintext)
     }
 
-    private fun doE2EERequest(
+    private suspend fun doE2EERequest(
         request: CloudSecureAreaProtocol.E2EERequest,
         remoteHost: String
     ): Pair<Int, ByteArray> {
@@ -827,7 +829,7 @@ class CloudSecureAreaServer(
         return handleCommandInternal(plainText, remoteHost, e2eeState)
     }
 
-    private fun handleCommandInternal(
+    private suspend fun handleCommandInternal(
         requestData: ByteArray,
         remoteHost: String,
         e2eeState: E2EEState?
@@ -860,7 +862,7 @@ class CloudSecureAreaServer(
         }
     }
 
-    fun handleCommand(requestData: ByteArray, remoteHost: String): Pair<Int, ByteArray> {
+    suspend fun handleCommand(requestData: ByteArray, remoteHost: String): Pair<Int, ByteArray> {
         return handleCommandInternal(requestData, remoteHost, null)
     }
 

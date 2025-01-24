@@ -18,8 +18,8 @@ import com.android.identity.flow.handler.InvalidRequestException
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment
 import com.android.identity.flow.server.Resources
-import com.android.identity.flow.server.Storage
-import com.android.identity.issuance.common.cache
+import com.android.identity.flow.cache
+import com.android.identity.flow.server.getTable
 import com.android.identity.mdoc.mso.MobileSecurityObjectGenerator
 import com.android.identity.mdoc.mso.StaticAuthDataGenerator
 import com.android.identity.mdoc.util.MdocUtil
@@ -61,16 +61,17 @@ class CredentialServlet : BaseServlet() {
         }
         val accessToken = authorization.substring(5)
         val id = codeToId(OpaqueIdType.ACCESS_TOKEN, accessToken)
-        val storage = environment.getInterface(Storage::class)!!
         val state = runBlocking {
-            IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
         }
         authorizeWithDpop(state.dpopKey, req, state.dpopNonce!!.toByteArray().toBase64Url(), accessToken)
         val nonce = state.cNonce!!.toByteArray().toBase64Url()  // credential nonce
         state.dpopNonce = null
         state.cNonce = null
         runBlocking {
-            storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            storage.update(id, ByteString(state.toCbor()))
         }
         val requestString = String(req.inputStream.readNBytes(req.contentLength))
         val json = Json.parseToJsonElement(requestString) as JsonObject

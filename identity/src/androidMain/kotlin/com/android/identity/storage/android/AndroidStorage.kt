@@ -22,7 +22,7 @@ class AndroidStorage: BaseStorage {
 
     constructor(
         database: SQLiteDatabase,
-        clock: Clock,
+        clock: Clock = Clock.System,
         coroutineContext: CoroutineContext = Dispatchers.IO,
         keySize: Int = 9
     ): super(clock) {
@@ -34,7 +34,7 @@ class AndroidStorage: BaseStorage {
 
     constructor(
         databasePath: String?,
-        clock: Clock,
+        clock: Clock = Clock.System,
         coroutineContext: CoroutineContext = Dispatchers.IO,
         keySize: Int = 9
     ): super(clock) {

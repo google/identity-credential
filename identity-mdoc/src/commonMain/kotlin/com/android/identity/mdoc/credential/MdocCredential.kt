@@ -40,38 +40,41 @@ class MdocCredential : SecureAreaBoundCredential {
     /**
      * Constructs a new [MdocCredential].
      *
+     * [SecureAreaBoundCredential.generateKey] providing [CreateKeySettings] must be called before using
+     * this object.
+     *
      * @param document the document to add the credential to.
      * @param asReplacementFor the credential this credential will replace, if not null
      * @param domain the domain of the credential
      * @param secureArea the secure area for the authentication key associated with this credential.
-     * @param createKeySettings the settings used to create new credentials.
      * @param docType the docType of the credential
+     *
+     * [SecureAreaBoundCredential.generateKey] must be called before using this object.
      */
     constructor(
         document: Document,
         asReplacementFor: Credential?,
         domain: String,
         secureArea: SecureArea,
-        createKeySettings: CreateKeySettings,
         docType: String
-    ) : super(document, asReplacementFor, domain, secureArea, createKeySettings) {
+    ) : super(document, asReplacementFor, domain, secureArea) {
         this.docType = docType
-        // Only the leaf constructor should add the credential to the document.
-        if (this::class == MdocCredential::class) {
-            addToDocument()
-        }
     }
 
     /**
      * Constructs a Credential from serialized data.
      *
+     * [generateKey] providing actual serialized data must be called before using this object.
+     *
      * @param document the [Document] that the credential belongs to.
      * @param dataItem the serialized data.
      */
     constructor(
-        document: Document,
-        dataItem: DataItem,
-    ) : super(document, dataItem) {
+        document: Document
+    ) : super(document) {}
+
+    override suspend fun deserialize(dataItem: DataItem) {
+        super.deserialize(dataItem)
         docType = dataItem["docType"].asTstr
     }
 
@@ -79,7 +82,8 @@ class MdocCredential : SecureAreaBoundCredential {
      * The docType of the credential as defined in
      * [ISO/IEC 18013-5:2021](https://www.iso.org/standard/69084.html).
      */
-    val docType: String
+    lateinit var docType: String
+        private set
 
     override fun addSerializedData(builder: MapBuilder<CborBuilder>) {
         super.addSerializedData(builder)

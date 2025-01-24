@@ -86,7 +86,7 @@ class TransferHelper(
      * @return a PresentationRequestData object containing data used to finish processing the request
      * and generate response bytes, or null if no credential id could be found.
      */
-    fun startProcessingRequest(deviceRequest: ByteArray): PresentationRequestData? {
+    suspend fun startProcessingRequest(deviceRequest: ByteArray): PresentationRequestData? {
 
         // TODO: we currently only look at the first docRequest ... in the future need to process
         //  all of them sequentially.
@@ -212,7 +212,7 @@ class TransferHelper(
         mergedIssuerNamespaces: Map<String, MutableList<ByteArray>>,
         credential: MdocCredential,
         keyUnlockData: KeyUnlockData?
-    ) = suspendCancellableCoroutine { continuation ->
+    ): MdocCredential? {
         var result: MdocCredential?
 
         try {
@@ -246,7 +246,7 @@ class TransferHelper(
             result = credential
         }
 
-        continuation.resume(result)
+        return result
     }
 
     /**
@@ -270,7 +270,7 @@ class TransferHelper(
      * @param docRequest the docRequest, including the requested DocType.
      * @return credential identifier if found, otherwise null.
      */
-    private fun findFirstdocumentSatisfyingRequest(
+    private suspend fun findFirstdocumentSatisfyingRequest(
         settingsModel: SettingsModel,
         credentialFormat: CredentialFormat,
         docRequest: DeviceRequestParser.DocRequest,
@@ -297,7 +297,7 @@ class TransferHelper(
      * @param docRequest the DocRequest, including the DocType
      * @return whether the specified credential id can satisfy the request
      */
-    private fun canDocumentSatisfyRequest(
+    private suspend fun canDocumentSatisfyRequest(
         credentialId: String,
         credentialFormat: CredentialFormat,
         docRequest: DeviceRequestParser.DocRequest

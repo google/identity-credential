@@ -56,6 +56,37 @@ abstract class BaseStorage(val clock: Clock): Storage {
         }
     }
 
+    /**
+     * API for the derived classes to be able to iterate through all the tables in the storage.
+     * This includes a (hidden) schema table defined in [SchemaTableSpec].
+     */
+    protected suspend fun enumerateTables(): List<BaseStorageTable> {
+        return lock.withLock {
+            ensureTablesLoaded()
+            tableMap.values.map { it.table }
+        }
+    }
+
+    /**
+     * API for the derived classes to be able to initialize newly created [BaseStorage] with
+     * the given list of tables. This must includes a (hidden) schema table defined in
+     * [SchemaTableSpec].
+     */
+    protected fun initTables(tables: List<BaseStorageTable>) {
+        if (tableMap.isNotEmpty()) {
+            throw IllegalStateException("Not an empty Storage")
+        }
+        for (table in tables) {
+            if (table.spec.name == SchemaTableSpec.name) {
+                schemaTable = table
+            }
+            tableMap[table.spec.name.lowercase()] = TableEntry(table)
+        }
+        if (schemaTable == null && tables.isNotEmpty()) {
+            throw IllegalArgumentException("Schema table missing")
+        }
+    }
+
     override suspend fun purgeExpired() {
         val tablesToPurge = lock.withLock {
             ensureTablesLoaded()
@@ -71,6 +102,7 @@ abstract class BaseStorage(val clock: Clock): Storage {
         if (schemaTable == null) {
             val schemaTable = createTable(SchemaTableSpec)
             this.schemaTable = schemaTable
+            tableMap[SchemaTableSpec.name.lowercase()] = TableEntry(schemaTable)
             tableMap.putAll(schemaTable.enumerate().map { name ->
                 val storedSpec = StorageTableSpec.decodeByteString(schemaTable.get(name)!!)
                 check(storedSpec.name == name)

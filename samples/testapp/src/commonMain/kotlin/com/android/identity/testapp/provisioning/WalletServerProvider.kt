@@ -19,10 +19,10 @@ import com.android.identity.issuance.WalletApplicationCapabilities
 import com.android.identity.issuance.WalletServer
 import com.android.identity.issuance.WalletServerImpl
 import com.android.identity.issuance.register
-import com.android.identity.securearea.SecureArea
-import com.android.identity.testapp.platformSecureArea
+import com.android.identity.storage.StorageTableSpec
+import com.android.identity.testapp.platformSecureAreaProvider
+import com.android.identity.testapp.platformStorage
 import com.android.identity.util.Logger
-import io.ktor.utils.io.core.toByteArray
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,8 +31,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.bytestring.ByteString
-import kotlinx.io.bytestring.ByteStringBuilder
-import kotlinx.io.bytestring.append
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -42,14 +40,11 @@ class WalletServerProvider(
     private val baseUrl: String,
     private val getWalletApplicationCapabilities: suspend () -> WalletApplicationCapabilities,
 ) {
-    private val secureArea: SecureArea = platformSecureArea()
     private val instanceLock = Mutex()
     private var instance: WalletServer? = null
     private val issuingAuthorityMap = mutableMapOf<String, IssuingAuthority>()
 
     private var notificationsJob: Job? = null
-    private var clientId: String? = null
-    private var deviceAttestationId: String? = null
 
     companion object {
         private const val TAG = "WalletServerProvider"
@@ -57,15 +52,11 @@ class WalletServerProvider(
         private val RECONNECT_DELAY_INITIAL = 1.seconds
         private val RECONNECT_DELAY_MAX = 30.seconds
 
-        private val salt = byteArrayOf((0xe7).toByte(), 0x7c, (0xf8).toByte(), (0xec).toByte())
-
-        fun authenticationMessage(clientId: String, nonce: ByteString): ByteString {
-            val buffer = ByteStringBuilder()
-            buffer.append(salt)
-            buffer.append(clientId.toByteArray())
-            buffer.append(nonce)
-            return buffer.toByteString()
-        }
+        private val serverTableSpec = StorageTableSpec(
+            name = "Servers",
+            supportPartitions = false,
+            supportExpiration = false
+        )
     }
 
     /**
@@ -178,16 +169,30 @@ class WalletServerProvider(
             flowNotifier = notifier
         )
 
+        val serverTable = platformStorage().getTable(serverTableSpec)
+        var serverData = serverTable.get(key = baseUrl)?.let {
+            ServerData.fromCbor(it.toByteArray())
+        }
+
+        val secureAreaProvider = platformSecureAreaProvider()
         val authentication = walletServer.authenticate()
-        val challenge = authentication.requestChallenge(clientId ?: "")
+        val challenge = authentication.requestChallenge(serverData?.clientId ?: "")
         val deviceAttestation: DeviceAttestation?
-        if (clientId != challenge.clientId) {
+        if (serverData?.clientId != challenge.clientId) {
             // new client for this host
-            val result = DeviceCheck.generateAttestation(secureArea, challenge.clientId)
+            val result = DeviceCheck.generateAttestation(
+                secureArea = secureAreaProvider.get(),
+                clientId = challenge.clientId
+            )
             deviceAttestation = result.deviceAttestation
             // TODO: save clientId and deviceAttestationId in storage
-            clientId = challenge.clientId
-            deviceAttestationId = result.deviceAttestationId
+            val newServerData = ServerData(challenge.clientId, result.deviceAttestationId)
+            if (serverData == null) {
+                serverTable.insert(baseUrl, ByteString(newServerData.toCbor()))
+            } else {
+                serverTable.update(baseUrl, ByteString(newServerData.toCbor()))
+            }
+            serverData = newServerData
         } else {
             // existing client for this host
             deviceAttestation = null
@@ -195,9 +200,9 @@ class WalletServerProvider(
         authentication.authenticate(ClientAuthentication(
             deviceAttestation,
             DeviceCheck.generateAssertion(
-                secureArea,
-                deviceAttestationId!!,
-                AssertionNonce(challenge.nonce)
+                secureArea = secureAreaProvider.get(),
+                deviceAttestationId = serverData.deviceAttestationId,
+                assertion = AssertionNonce(challenge.nonce)
             ),
             getWalletApplicationCapabilities()
         ))

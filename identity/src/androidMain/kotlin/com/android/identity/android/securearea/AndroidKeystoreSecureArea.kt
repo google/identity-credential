@@ -41,7 +41,9 @@ import com.android.identity.securearea.KeyLockedException
 import com.android.identity.securearea.KeyPurpose
 import com.android.identity.securearea.SecureArea
 import com.android.identity.securearea.keyPurposeSet
-import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.Storage
+import com.android.identity.storage.StorageTable
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -62,6 +64,7 @@ import java.security.spec.InvalidKeySpecException
 import java.sql.Date
 import javax.crypto.KeyAgreement
 import kotlinx.datetime.Instant
+import kotlinx.io.bytestring.ByteString
 import org.bouncycastle.asn1.ASN1InputStream
 import org.bouncycastle.asn1.ASN1Integer
 import org.bouncycastle.asn1.ASN1Sequence
@@ -102,13 +105,15 @@ import java.io.ByteArrayInputStream
  * what the device supports.
  *
  * This implementation works only on Android and requires API level 24 or later.
+ *
+ * Use [AndroidKeystoreSecureArea.create] to create an instance of this class.
  */
 class AndroidKeystoreSecureArea(
     private val context: Context,
-    private val storageEngine: StorageEngine
+    private val storageTable: StorageTable
 ) : SecureArea {
     override val identifier: String
-        get() = "AndroidKeystoreSecureArea"
+        get() = IDENTIFIER
 
     override val displayName: String
         get() = "Android Keystore Secure Area"
@@ -131,10 +136,19 @@ class AndroidKeystoreSecureArea(
         )
     }
 
-    override fun createKey(
-        alias: String,
+    override suspend fun createKey(
+        alias: String?,
         createKeySettings: com.android.identity.securearea.CreateKeySettings
-    ) {
+    ): String {
+        if (alias != null) {
+            // If the key with the given alias exists, it is silently overwritten.
+            // TODO: review if this is the semantics we want
+            storageTable.delete(alias)
+        }
+
+        // This will throw an exception if an already-used alias is given.
+        val newKeyAlias = storageTable.insert(alias, ByteString())
+
         val aSettings: AndroidKeystoreCreateKeySettings
         aSettings = if (createKeySettings is AndroidKeystoreCreateKeySettings) {
             createKeySettings
@@ -177,7 +191,7 @@ class AndroidKeystoreSecureArea(
                     }
                 }
             }
-            val builder = KeyGenParameterSpec.Builder(alias, purposes)
+            val builder = KeyGenParameterSpec.Builder(newKeyAlias, purposes)
             when (aSettings.ecCurve) {
                 EcCurve.P256 ->                     // Works with both purposes.
                     builder.setDigests(KeyProperties.DIGEST_SHA256)
@@ -267,15 +281,17 @@ class AndroidKeystoreSecureArea(
         val attestationCerts = mutableListOf<X509Cert>()
         try {
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
-            ks.getCertificateChain(alias).forEach { certificate ->
+            ks.getCertificateChain(newKeyAlias).forEach { certificate ->
                 attestationCerts.add(X509Cert(certificate.encoded))
             }
         } catch (e: Exception) {
             throw IllegalStateException(e)
         }
         Logger.d(TAG, "EC key with alias '$alias' created")
-        saveKeyMetadata(alias, aSettings, X509CertChain(attestationCerts))
+        saveKeyMetadata(newKeyAlias, aSettings, X509CertChain(attestationCerts))
+        return newKeyAlias
     }
 
     /**
@@ -291,9 +307,14 @@ class AndroidKeystoreSecureArea(
      *
      * @param existingAlias the alias of the existing key.
      */
-    fun createKeyForExistingAlias(existingAlias: String) {
+    suspend fun createKeyForExistingAlias(existingAlias: String) {
+        // If the key with the given alias exists, it is silently overwritten.
+        // TODO: review if this is the semantics we want
+        storageTable.delete(existingAlias)
+        storageTable.insert(existingAlias, ByteString())
 
         val ks = KeyStore.getInstance("AndroidKeyStore")
+        // TODO: move to an IO thread
         ks.load(null)
         val entry = ks.getEntry(existingAlias, null)
             ?: throw IllegalArgumentException("A key with this alias doesn't exist")
@@ -328,6 +349,7 @@ class AndroidKeystoreSecureArea(
         val attestationCerts = mutableListOf<X509Cert>()
         try {
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             ks.getCertificateChain(existingAlias).forEach { certificate ->
                 attestationCerts.add(X509Cert(certificate.encoded))
@@ -379,18 +401,19 @@ class AndroidKeystoreSecureArea(
         Logger.d(TAG, "EC existing key with alias '$existingAlias' created")
     }
 
-    override fun deleteKey(alias: String) {
+    override suspend fun deleteKey(alias: String) {
         val ks: KeyStore
         var entry: KeyStore.Entry
         try {
             ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             if (!ks.containsAlias(alias)) {
                 Logger.w(TAG, "Key with alias '$alias' doesn't exist")
                 return
             }
             ks.deleteEntry(alias)
-            storageEngine.delete(PREFIX + alias)
+            storageTable.delete(alias)
         } catch (e: CertificateException) {
             throw IllegalStateException("Error loading keystore", e)
         } catch (e: IOException) {
@@ -403,7 +426,7 @@ class AndroidKeystoreSecureArea(
         Logger.d(TAG, "EC key with alias '$alias' deleted")
     }
 
-    override fun sign(
+    override suspend fun sign(
         alias: String,
         signatureAlgorithm: Algorithm,
         dataToSign: ByteArray,
@@ -457,7 +480,7 @@ class AndroidKeystoreSecureArea(
     }
 
     @Throws(KeyLockedException::class)
-    override fun keyAgreement(
+    override suspend fun keyAgreement(
         alias: String,
         otherKey: EcPublicKey,
         keyUnlockData: com.android.identity.securearea.KeyUnlockData?
@@ -488,20 +511,22 @@ class AndroidKeystoreSecureArea(
 
     // @throws IllegalArgumentException if the key doesn't exist.
     // @throws KeyInvalidatedException if LSKF was removed and the key is no longer available.
-    private fun loadKey(alias: String): Pair<KeyStore.Entry, ByteArray> {
-        val data = storageEngine[PREFIX + alias] ?: throw IllegalArgumentException("No key with given alias")
+    private suspend fun loadKey(alias: String): Pair<KeyStore.Entry, ByteArray> {
+        val data = storageTable.get(alias)
+            ?: throw IllegalArgumentException("No key with given alias")
 
         val ks = KeyStore.getInstance("AndroidKeyStore")
+        // TODO: move to an IO thread
         ks.load(null)
         // If the LSKF is removed, all auth-bound keys are removed and the result is
         // that KeyStore.getEntry() returns null.
         val entry = ks.getEntry(alias, null)
             ?: throw KeyInvalidatedException("This key is no longer available")
 
-        return Pair(entry, data)
+        return Pair(entry, data.toByteArray())
     }
 
-    override fun getKeyInvalidated(alias: String): Boolean {
+    override suspend fun getKeyInvalidated(alias: String): Boolean {
         try {
             loadKey(alias)
         } catch (e: KeyInvalidatedException) {
@@ -510,7 +535,7 @@ class AndroidKeystoreSecureArea(
         return false
     }
 
-    override fun getKeyInfo(alias: String): AndroidKeystoreKeyInfo {
+    override suspend fun getKeyInfo(alias: String): AndroidKeystoreKeyInfo {
         val (entry, data) = loadKey(alias)
         return try {
             val privateKey = (entry as KeyStore.PrivateKeyEntry).privateKey
@@ -568,7 +593,7 @@ class AndroidKeystoreSecureArea(
         }
     }
 
-    private fun saveKeyMetadata(
+    private suspend fun saveKeyMetadata(
         alias: String,
         settings: AndroidKeystoreCreateKeySettings,
         attestation: X509CertChain
@@ -583,7 +608,7 @@ class AndroidKeystoreSecureArea(
         map.put("useStrongBox", settings.useStrongBox)
         map.put("attestation", attestation.toDataItem())
         map.put("curve", settings.ecCurve.coseCurveIdentifier)
-        storageEngine.put(PREFIX + alias, Cbor.encode(map.end().build()))
+        storageTable.update(alias, ByteString(Cbor.encode(map.end().build())))
     }
 
     /**
@@ -698,8 +723,22 @@ class AndroidKeystoreSecureArea(
          */
         private const val TAG = "AndroidKeystoreSA" // limit to <= 23 chars
 
-        // Prefix used for storage items, the key alias follows.
-        private const val PREFIX = "IC_AndroidKeystore_"
+        const val IDENTIFIER = "AndroidKeystoreSecureArea"
+
+        /**
+         * Creates an instance of AndroidKeystoreSecureArea.
+         *
+         * @param storage the storage engine to use for storing key material.
+         */
+        suspend fun create(context: Context, storage: Storage): AndroidKeystoreSecureArea {
+            return AndroidKeystoreSecureArea(context, storage.getTable(tableSpec))
+        }
+
+        private val tableSpec = StorageTableSpec(
+            name = "AndroidKeystoreSecureArea",
+            supportPartitions = false,
+            supportExpiration = false
+        )
 
         internal fun getSignatureAlgorithmName(signatureAlgorithm: Algorithm): String {
             return when (signatureAlgorithm) {

@@ -125,29 +125,29 @@ class CredmanPresentationActivity : FragmentActivity() {
                     requestedData.getOrPut(namespace) { mutableListOf() }
                         .add(Pair(name, intentToRetain))
                 }
-                val mdocCredential = getMdocCredentialForCredentialId(credentialId)
-                val consentFields = MdocConsentField.generateConsentFields(
-                    docType,
-                    requestedData,
-                    walletApp.documentTypeRepository,
-                    mdocCredential
-                )
-
-                // Generate the Session Transcript
-                val encodedSessionTranscript = if (callingOrigin == null) {
-                    CredmanUtil.generateAndroidSessionTranscript(
-                        nonce,
-                        callingPackageName,
-                        Crypto.digest(Algorithm.SHA256, readerPublicKey.asUncompressedPointEncoding)
-                    )
-                } else {
-                    CredmanUtil.generateBrowserSessionTranscript(
-                        nonce,
-                        callingOrigin,
-                        Crypto.digest(Algorithm.SHA256, readerPublicKey.asUncompressedPointEncoding)
-                    )
-                }
                 lifecycleScope.launch {
+                    val mdocCredential = getMdocCredentialForCredentialId(credentialId)
+                    val consentFields = MdocConsentField.generateConsentFields(
+                        docType,
+                        requestedData,
+                        walletApp.documentTypeRepository,
+                        mdocCredential
+                    )
+
+                    // Generate the Session Transcript
+                    val encodedSessionTranscript = if (callingOrigin == null) {
+                        CredmanUtil.generateAndroidSessionTranscript(
+                            nonce,
+                            callingPackageName,
+                            Crypto.digest(Algorithm.SHA256, readerPublicKey.asUncompressedPointEncoding)
+                        )
+                    } else {
+                        CredmanUtil.generateBrowserSessionTranscript(
+                            nonce,
+                            callingOrigin,
+                            Crypto.digest(Algorithm.SHA256, readerPublicKey.asUncompressedPointEncoding)
+                        )
+                    }
                     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
                         mdocCredential,
                         consentFields,
@@ -214,40 +214,40 @@ class CredmanPresentationActivity : FragmentActivity() {
                     encodedSessionTranscript
                 ).parse().docRequests[0]
 
-                val mdocCredential = getMdocCredentialForCredentialId(credentialId)
-                val consentFields = MdocConsentField.generateConsentFields(
-                    docRequest,
-                    walletApp.documentTypeRepository,
-                    mdocCredential
-                )
-
-                val encryptionInfo = Cbor.decode(encryptionInfoBase64.fromBase64Url())
-                if (encryptionInfo.asArray.get(0).asTstr != "ARFEncryptionv2") {
-                    throw IllegalArgumentException("Malformed EncryptionInfo")
-                }
-                val nonce = encryptionInfo.asArray.get(1).asMap.get(Tstr("nonce"))!!.asBstr
-                val readerPublicKey = encryptionInfo.asArray.get(1).asMap.get(Tstr
-                    ("readerPublicKey"))!!.asCoseKey.ecPublicKey
-
-                // See if we recognize the reader/verifier
-                var trustPoint: TrustPoint? = null
-                if (docRequest.readerAuthenticated) {
-                    val result = walletApp.readerTrustManager.verify(
-                        docRequest.readerCertificateChain!!.certificates,
-                    )
-                    if (result.isTrusted && result.trustPoints.isNotEmpty()) {
-                        trustPoint = result.trustPoints.first()
-                    } else if (result.error != null) {
-                        Logger.w(
-                            TAG,
-                            "Error finding TrustPoint for reader auth",
-                            result.error!!
-                        )
-                    }
-                }
-                Logger.i(TAG, "TrustPoint: $trustPoint")
-
                 lifecycleScope.launch {
+                    val mdocCredential = getMdocCredentialForCredentialId(credentialId)
+                    val consentFields = MdocConsentField.generateConsentFields(
+                        docRequest,
+                        walletApp.documentTypeRepository,
+                        mdocCredential
+                    )
+
+                    val encryptionInfo = Cbor.decode(encryptionInfoBase64.fromBase64Url())
+                    if (encryptionInfo.asArray.get(0).asTstr != "ARFEncryptionv2") {
+                        throw IllegalArgumentException("Malformed EncryptionInfo")
+                    }
+                    val nonce = encryptionInfo.asArray.get(1).asMap.get(Tstr("nonce"))!!.asBstr
+                    val readerPublicKey = encryptionInfo.asArray.get(1).asMap.get(Tstr
+                        ("readerPublicKey"))!!.asCoseKey.ecPublicKey
+
+                    // See if we recognize the reader/verifier
+                    var trustPoint: TrustPoint? = null
+                    if (docRequest.readerAuthenticated) {
+                        val result = walletApp.readerTrustManager.verify(
+                            docRequest.readerCertificateChain!!.certificates,
+                        )
+                        if (result.isTrusted && result.trustPoints.isNotEmpty()) {
+                            trustPoint = result.trustPoints.first()
+                        } else if (result.error != null) {
+                            Logger.w(
+                                TAG,
+                                "Error finding TrustPoint for reader auth",
+                                result.error!!
+                            )
+                        }
+                    }
+                    Logger.i(TAG, "TrustPoint: $trustPoint")
+
                     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
                         mdocCredential,
                         consentFields,
@@ -327,29 +327,29 @@ class CredmanPresentationActivity : FragmentActivity() {
                     requestedData.getOrPut(namespace) { mutableListOf() }
                         .add(Pair(name, intentToRetain))
                 }
-                val mdocCredential = getMdocCredentialForCredentialId(credentialId)
-                val consentFields = MdocConsentField.generateConsentFields(
-                    docType,
-                    requestedData,
-                    walletApp.documentTypeRepository,
-                    mdocCredential
-                )
-
-                // Generate the Session Transcript
-                val encodedSessionTranscript = if (callingOrigin == null) {
-                    CredmanUtil.generateAndroidSessionTranscript(
-                        nonce,
-                        callingPackageName,
-                        Crypto.digest(Algorithm.SHA256, clientID.toByteArray())
-                    )
-                } else {
-                    CredmanUtil.generateBrowserSessionTranscript(
-                        nonce,
-                        callingOrigin,
-                        Crypto.digest(Algorithm.SHA256, clientID.toByteArray())
-                    )
-                }
                 lifecycleScope.launch {
+                    val mdocCredential = getMdocCredentialForCredentialId(credentialId)
+                    val consentFields = MdocConsentField.generateConsentFields(
+                        docType,
+                        requestedData,
+                        walletApp.documentTypeRepository,
+                        mdocCredential
+                    )
+
+                    // Generate the Session Transcript
+                    val encodedSessionTranscript = if (callingOrigin == null) {
+                        CredmanUtil.generateAndroidSessionTranscript(
+                            nonce,
+                            callingPackageName,
+                            Crypto.digest(Algorithm.SHA256, clientID.toByteArray())
+                        )
+                    } else {
+                        CredmanUtil.generateBrowserSessionTranscript(
+                            nonce,
+                            callingOrigin,
+                            Crypto.digest(Algorithm.SHA256, clientID.toByteArray())
+                        )
+                    }
                     val deviceResponse = showPresentmentFlowAndGetDeviceResponse(
                         mdocCredential,
                         consentFields,
@@ -409,14 +409,17 @@ class CredmanPresentationActivity : FragmentActivity() {
         websiteOrigin: String?,
         encodedSessionTranscript: ByteArray,
     ): ByteArray {
-        val documentCborBytes = showMdocPresentmentFlow(
-            activity = this@CredmanPresentationActivity,
-            consentFields = consentFields,
-            document = ConsentDocument(
+        val consentDocument = mdocCredential.document.withLock {
+            ConsentDocument(
                 name = mdocCredential.document.documentConfiguration.displayName,
                 description = mdocCredential.document.documentConfiguration.typeDisplayName,
                 cardArt = mdocCredential.document.documentConfiguration.cardArt,
-            ),
+            )
+        }
+        val documentCborBytes = showMdocPresentmentFlow(
+            activity = this@CredmanPresentationActivity,
+            consentFields = consentFields,
+            document = consentDocument,
             relyingParty = ConsentRelyingParty(trustPoint, websiteOrigin),
             credential = mdocCredential,
             encodedSessionTranscript = encodedSessionTranscript,
@@ -434,14 +437,16 @@ class CredmanPresentationActivity : FragmentActivity() {
      * @param credentialId the index of the credential in the document store.
      * @return the [MdocCredential] object.
      */
-    private fun getMdocCredentialForCredentialId(credentialId: Int): MdocCredential {
-        val documentName = walletApp.documentStore.listDocuments().get(credentialId)
-        val document = walletApp.documentStore.lookupDocument(documentName)
+    private suspend fun getMdocCredentialForCredentialId(credentialId: Int): MdocCredential {
+        return walletApp.documentStore.withLock {
+            val documentName = walletApp.documentStore.listDocuments()[credentialId]
+            val document = walletApp.documentStore.lookupDocument(documentName)
 
-        return document!!.findCredential(
-            WalletApplication.CREDENTIAL_DOMAIN_MDOC,
-            Clock.System.now()
-        ) as MdocCredential
+            document!!.findCredential(
+                WalletApplication.CREDENTIAL_DOMAIN_MDOC,
+                Clock.System.now()
+            ) as MdocCredential
+        }
     }
 
     private fun createGetCredentialResponse(response: String): GetCredentialResponse {

@@ -1,7 +1,7 @@
 package com.android.identity.issuance.funke
 
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.issuance.common.cache
+import com.android.identity.flow.cache
 import com.android.identity.util.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -13,8 +13,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive

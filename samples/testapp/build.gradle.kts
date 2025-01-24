@@ -44,6 +44,8 @@ kotlin {
         val iosMain by getting {
             dependencies {
                 implementation(libs.ktor.client.darwin)
+                implementation(libs.androidx.sqlite)
+                implementation(libs.androidx.sqlite.framework)
             }
         }
 

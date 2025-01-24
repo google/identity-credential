@@ -32,6 +32,9 @@ import com.android.identity.mdoc.origininfo.OriginInfo
 import com.android.identity.mdoc.sessionencryption.SessionEncryption
 import com.android.identity.util.Constants
 import com.android.identity.util.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
 
 /**
@@ -68,7 +71,7 @@ class DeviceRetrievalHelper internal constructor(
     private var reverseEngagementReaderEngagement: ByteArray? = null
     private var reverseEngagementOriginInfos: List<OriginInfo>? = null
     private var reverseEngagementEncodedEReaderKey: ByteArray? = null
-
+    private val listenerCoroutineScope = CoroutineScope(listenerExecutor.asCoroutineDispatcher())
     /**
      * The bytes of the device engagement being used.
      */
@@ -113,7 +116,7 @@ class DeviceRetrievalHelper internal constructor(
     // Note: The report*() methods are safe to call from any thread.
     fun reportEReaderKeyReceived(eReaderKey: EcPublicKey) {
         Logger.d(TAG, "reportEReaderKeyReceived: $eReaderKey")
-        listenerExecutor.execute {
+        listenerCoroutineScope.launch {
             if (!inhibitCallbacks) {
                 listener.onEReaderKeyReceived(eReaderKey)
             }
@@ -122,7 +125,7 @@ class DeviceRetrievalHelper internal constructor(
 
     fun reportDeviceRequest(deviceRequestBytes: ByteArray) {
         Logger.d(TAG, "reportDeviceRequest: deviceRequestBytes: ${deviceRequestBytes.size} bytes")
-        listenerExecutor.execute {
+        listenerCoroutineScope.launch {
             if (!inhibitCallbacks) {
                 listener.onDeviceRequest(deviceRequestBytes)
             }
@@ -132,7 +135,7 @@ class DeviceRetrievalHelper internal constructor(
     fun reportDeviceDisconnected(transportSpecificTermination: Boolean) {
         Logger.d(TAG, "reportDeviceDisconnected: transportSpecificTermination: " +
                     "$transportSpecificTermination")
-        listenerExecutor.execute {
+        listenerCoroutineScope.launch {
             if (!inhibitCallbacks) {
                 listener.onDeviceDisconnected(transportSpecificTermination)
             }
@@ -141,7 +144,7 @@ class DeviceRetrievalHelper internal constructor(
 
     fun reportError(error: Throwable) {
         Logger.d(TAG, "reportError: error: ", error)
-        listenerExecutor.execute {
+        listenerCoroutineScope.launch {
             if (!inhibitCallbacks) {
                 listener.onError(error)
             }
@@ -444,6 +447,8 @@ class DeviceRetrievalHelper internal constructor(
      * The [Listener.onError] callback can be called at any time - for
      * example - if the remote verifier disconnects without using session termination or if the
      * underlying transport encounters an unrecoverable error.
+     *
+     * TODO: consider redoing this API through flows.
      */
     interface Listener {
         /**
@@ -454,7 +459,7 @@ class DeviceRetrievalHelper internal constructor(
          *
          * @param eReaderKey the ephemeral reader key.
          */
-        fun onEReaderKeyReceived(eReaderKey: EcPublicKey)
+        suspend fun onEReaderKeyReceived(eReaderKey: EcPublicKey)
 
         /**
          * Called when the remote verifier device sends a request.
@@ -464,7 +469,7 @@ class DeviceRetrievalHelper internal constructor(
          *
          * @param deviceRequestBytes the device request.
          */
-        fun onDeviceRequest(deviceRequestBytes: ByteArray)
+        suspend fun onDeviceRequest(deviceRequestBytes: ByteArray)
 
         /**
          * Called when the remote verifier device disconnects normally, that is
@@ -476,7 +481,7 @@ class DeviceRetrievalHelper internal constructor(
          * @param transportSpecificTermination set to `true` if the termination
          * mechanism used was transport specific.
          */
-        fun onDeviceDisconnected(transportSpecificTermination: Boolean)
+        suspend fun onDeviceDisconnected(transportSpecificTermination: Boolean)
 
         /**
          * Called when an unrecoverable error happens, for example if the remote device
@@ -487,7 +492,7 @@ class DeviceRetrievalHelper internal constructor(
          *
          * @param error the error.
          */
-        fun onError(error: Throwable)
+        suspend fun onError(error: Throwable)
     }
 
     /**

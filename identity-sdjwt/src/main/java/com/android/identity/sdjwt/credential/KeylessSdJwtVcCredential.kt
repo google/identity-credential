@@ -7,7 +7,8 @@ import com.android.identity.credential.Credential
 import com.android.identity.document.Document
 
 class KeylessSdJwtVcCredential : Credential, SdJwtVcCredential {
-    override val vct: String
+    override lateinit var vct: String
+        private set
 
     /**
      * Constructs a new [KeyBoundSdJwtVcCredential].
@@ -24,22 +25,22 @@ class KeylessSdJwtVcCredential : Credential, SdJwtVcCredential {
         vct: String,
     ) : super(document, asReplacementFor, domain) {
         this.vct = vct
-        // Only the leaf constructor should add the credential to the document.
-        if (this::class == KeylessSdJwtVcCredential::class) {
-            addToDocument()
-        }
+        // Only the leaf constructors for keyless credentials should add the credential to
+        // the document.
+        check (this::class == KeylessSdJwtVcCredential::class)
+        addToDocument()
     }
 
     /**
      * Constructs a Credential from serialized data.
      *
+     * [deserialize] providing actual serialized data must be called before using this object.
+     *
      * @param document the [Document] that the credential belongs to.
-     * @param dataItem the serialized data.
      */
-    constructor(
-        document: Document,
-        dataItem: DataItem,
-    ) : super(document, dataItem) {
+    constructor(document: Document) : super(document)
+
+    override suspend fun deserialize(dataItem: DataItem) {
         vct = dataItem["vct"].asTstr
     }
 

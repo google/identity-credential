@@ -15,12 +15,12 @@ import com.android.identity.flow.handler.FlowNotifications
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment
 import com.android.identity.flow.server.Resources
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.WalletServerSettings
 import com.android.identity.securearea.cloud.CloudSecureAreaServer
 import com.android.identity.securearea.cloud.SimplePassphraseFailureEnforcer
 import com.android.identity.server.BaseHttpServlet
-import com.android.identity.util.fromHex
+import com.android.identity.storage.StorageTableSpec
 import kotlinx.coroutines.runBlocking
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -160,17 +160,19 @@ class CloudSecureAreaServlet : BaseHttpServlet() {
         private lateinit var cloudSecureArea: CloudSecureAreaServer
         private lateinit var keyMaterial: KeyMaterial
 
+        private val cloudRootStateTableSpec = StorageTableSpec(
+            name = "CloudSecureAreaRootState",
+            supportExpiration = false,
+            supportPartitions = false
+        )
+
         private fun createKeyMaterial(serverEnvironment: FlowEnvironment): KeyMaterial {
-            val storage = serverEnvironment.getInterface(Storage::class)!!
             val keyMaterialBlob = runBlocking {
-                storage.get("RootState", "", "cloudSecureAreaKeyMaterial")?.toByteArray()
+                val storage = serverEnvironment.getTable(cloudRootStateTableSpec)
+                storage.get("cloudSecureAreaKeyMaterial")?.toByteArray()
                     ?: let {
                         val blob = KeyMaterial.createKeyMaterial(serverEnvironment).toCbor()
-                        storage.insert(
-                            "RootState",
-                            "",
-                            ByteString(blob),
-                            "cloudSecureAreaKeyMaterial")
+                        storage.insert(key = "cloudSecureAreaKeyMaterial", data = ByteString(blob))
                         blob
                     }
             }
@@ -214,7 +216,9 @@ class CloudSecureAreaServlet : BaseHttpServlet() {
         val requestLength = req.contentLength
         val requestData = req.inputStream.readNBytes(requestLength)
         val remoteHost = getRemoteHost(req)
-        val (first, second) = cloudSecureArea.handleCommand(requestData, remoteHost)
+        val (first, second) = runBlocking {
+            cloudSecureArea.handleCommand(requestData, remoteHost)
+        }
         resp.status = first
         if (first == HttpServletResponse.SC_OK) {
             resp.contentType = "application/cbor"

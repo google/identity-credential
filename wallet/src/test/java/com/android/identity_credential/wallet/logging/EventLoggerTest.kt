@@ -1,6 +1,8 @@
 package com.android.identity_credential.wallet.logging
 
 import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.ephemeral.EphemeralStorage
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -16,12 +18,12 @@ class EventLoggerTest(
     private val shareType: EventLogger.ShareType
 ) {
 
-    private lateinit var mockStorage: EphemeralStorageEngine
+    private lateinit var mockStorage: EphemeralStorage
     private lateinit var activityLogger: EventLogger
 
     @Before
     fun setUp() {
-        mockStorage = EphemeralStorageEngine()
+        mockStorage = EphemeralStorage()
         activityLogger = EventLogger(mockStorage)
     }
 
@@ -38,7 +40,7 @@ class EventLoggerTest(
     }
 
     @Test
-    fun testAddAndDeleteEntries() {
+    fun testAddAndDeleteEntries() = runTest {
         activityLogger.startLoggingEvents()
 
         activityLogger.addMDocPresentationEntry(
@@ -54,7 +56,8 @@ class EventLoggerTest(
         assertTrue(entries.isNotEmpty(), "Entries should not be empty after adding an event")
 
         activityLogger.deleteEntries(entries)
-        assertTrue(mockStorage.enumerate().isEmpty(), "Storage should be empty after deleting all entries")
+        val table = mockStorage.getTable(EventLogger.eventTableSpec)
+        assertTrue(table.enumerate().isEmpty(), "Storage should be empty after deleting all entries")
     }
 
     companion object {

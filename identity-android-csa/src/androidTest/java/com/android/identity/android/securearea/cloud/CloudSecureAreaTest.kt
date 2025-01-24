@@ -25,6 +25,9 @@ import com.android.identity.securearea.cloud.fromCbor
 import com.android.identity.securearea.cloud.toCbor
 import com.android.identity.storage.EphemeralStorageEngine
 import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.StorageTable
+import com.android.identity.storage.StorageTableSpec
+import com.android.identity.storage.ephemeral.EphemeralStorage
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -39,6 +42,7 @@ import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.security.Security
 import kotlin.random.Random
+import kotlin.reflect.KClass
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
@@ -55,13 +59,14 @@ class CloudSecureAreaTest {
     var serverTime = Instant.fromEpochMilliseconds(0)
 
     internal inner class LoopbackCloudSecureArea(
-        context: Context,
-        storageEngine: StorageEngine,
-        packageToAllow: String?,
-    ) : CloudSecureArea(context, storageEngine, "CloudSecureArea", "uri-not-used") {
-        private val server: CloudSecureAreaServer
+        private val context: Context,
+        storageTable: StorageTable,
+        private val packageToAllow: String?,
+    ) : CloudSecureArea(storageTable, "CloudSecureArea", "uri-not-used") {
+        private lateinit var server: CloudSecureAreaServer
 
-        init {
+        public override suspend fun initialize() {
+            super.initialize()
             val enclaveBoundKey = Random.nextBytes(32)
 
             val attestationKeySubject = "CN=Cloud Secure Area Attestation Root"
@@ -164,9 +169,10 @@ class CloudSecureAreaTest {
         val context = InstrumentationRegistry.getTargetContext()
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa.initialize()
         csa.register(
             "",
             PassphraseConstraints.NONE) { true }
@@ -186,9 +192,10 @@ class CloudSecureAreaTest {
         val context = InstrumentationRegistry.getTargetContext()
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa.initialize()
         csa.register(
             "",
             PassphraseConstraints.NONE) { true }
@@ -221,9 +228,10 @@ class CloudSecureAreaTest {
         val context = InstrumentationRegistry.getTargetContext()
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa.initialize()
         csa.register(
             "",
             PassphraseConstraints.NONE) { true }
@@ -261,9 +269,10 @@ class CloudSecureAreaTest {
         val context = InstrumentationRegistry.getTargetContext()
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa.initialize()
         csa.register(
             "",
             PassphraseConstraints.NONE) { true }
@@ -291,9 +300,10 @@ class CloudSecureAreaTest {
         // Setup the server to only accept our package name. This should cause register to succeed().
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             context.packageName
         )
+        csa.initialize()
         csa.register(
             "",
             PassphraseConstraints.NONE) { true }
@@ -308,9 +318,10 @@ class CloudSecureAreaTest {
         // cause register() to fail.
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             "com.android.externalstorage"
         )
+        csa.initialize()
         try {
             csa.register(
                 "",
@@ -328,9 +339,10 @@ class CloudSecureAreaTest {
         val context = InstrumentationRegistry.getTargetContext()
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa.initialize()
         csa.register(
             "",
             PassphraseConstraints.NONE) { true }
@@ -371,16 +383,17 @@ class CloudSecureAreaTest {
     }
 
     suspend fun testWrongPassphraseDelayHelper(
-        useKey: (alias: String,
+        useKey: suspend (alias: String,
                  csa: CloudSecureArea,
                  unlockData: CloudKeyUnlockData?) -> Unit
     ) {
         val context = InstrumentationRegistry.getTargetContext()
         val csa = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa.initialize()
 
         csa.register(
             "1111",
@@ -432,15 +445,15 @@ class CloudSecureAreaTest {
         // last minute.
         serverTime = Instant.fromEpochMilliseconds(0)
         useKey("testKey1", csa, correctPassphrase)
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
         serverTime = Instant.fromEpochMilliseconds(15 * 1000)
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
         serverTime = Instant.fromEpochMilliseconds(30 * 1000)
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
 
@@ -456,7 +469,7 @@ class CloudSecureAreaTest {
 
         // Let's do another failed attempt and then try again... this should block
         // until T = 75 seconds because we had failed attempts at T=15 and T=30 already.
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
         useKey("testKey1", csa, correctPassphrase)
@@ -467,13 +480,13 @@ class CloudSecureAreaTest {
 
         // Also check that if one key from the client is blocked, so are all others. Also
         // check here that operations on keys w/o passphrases aren't blocked
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
         // testKey3NoPassphrase shouldn't be blocked
@@ -490,9 +503,10 @@ class CloudSecureAreaTest {
         // end we're creating a new client w/ a passphrase protected key.
         val csa2 = LoopbackCloudSecureArea(
             context,
-            EphemeralStorageEngine(),
+            EphemeralStorage().getTable(tableSpec),
             null
         )
+        csa2.initialize()
         csa2.register(
             "9876",
             PassphraseConstraints.PIN_FOUR_DIGITS,
@@ -507,13 +521,13 @@ class CloudSecureAreaTest {
         correctPassphraseClient2.passphrase = "9876"
 
         // Now use up all failed attempts on client 1
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
-        Assert.assertThrows(KeyLockedException::class.java) {
+        assertThrows(KeyLockedException::class) {
             useKey("testKey1", csa, incorrectPassphrase)
         }
         Assert.assertEquals(Instant.fromEpochMilliseconds(2000 * 1000), serverTime)
@@ -536,5 +550,22 @@ class CloudSecureAreaTest {
                 throw RuntimeException(e)
             }
         }
+
+        private suspend fun assertThrows(clazz: KClass<out Throwable>, body: suspend () -> Unit) {
+            try {
+                body()
+                Assert.fail("Expected exception $clazz, no exception was thrown")
+            } catch (err: Throwable) {
+                if (!clazz.isInstance(err)) {
+                    throw err
+                }
+            }
+        }
+
+        private val tableSpec = StorageTableSpec(
+            name = "TestCloudSecureArea",
+            supportPartitions = true,
+            supportExpiration = false
+        )
     }
 }

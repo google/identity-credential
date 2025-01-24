@@ -1,12 +1,10 @@
 package com.android.identity.testapp
 
-import com.android.identity.appsupport.ui.consent.MdocConsentField
 import com.android.identity.asn1.ASN1Integer
 import com.android.identity.cbor.Bstr
 import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.CborArray
 import com.android.identity.cbor.DataItem
-import com.android.identity.cbor.Simple
 import com.android.identity.cbor.Tagged
 import com.android.identity.cbor.toDataItem
 import com.android.identity.cose.Cose
@@ -28,27 +26,22 @@ import com.android.identity.documenttype.DocumentWellKnownRequest
 import com.android.identity.documenttype.knowntypes.DrivingLicense
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.mso.MobileSecurityObjectGenerator
-import com.android.identity.mdoc.mso.MobileSecurityObjectParser
 import com.android.identity.mdoc.mso.StaticAuthDataGenerator
-import com.android.identity.mdoc.mso.StaticAuthDataParser
 import com.android.identity.mdoc.request.DeviceRequestGenerator
-import com.android.identity.mdoc.response.DeviceResponseGenerator
-import com.android.identity.mdoc.response.DocumentGenerator
 import com.android.identity.mdoc.util.MdocUtil
 import com.android.identity.securearea.KeyPurpose
-import com.android.identity.securearea.SecureArea
 import com.android.identity.securearea.SecureAreaRepository
 import com.android.identity.securearea.software.SoftwareCreateKeySettings
 import com.android.identity.securearea.software.SoftwareSecureArea
-import com.android.identity.storage.EphemeralStorageEngine
-import com.android.identity.storage.StorageEngine
 import com.android.identity.trustmanagement.TrustManager
 import com.android.identity.trustmanagement.TrustPoint
-import com.android.identity.util.Constants
 import com.android.identity.util.Logger
-import com.android.identity.util.fromHex
 import identitycredential.samples.testapp.generated.resources.Res
 import identitycredential.samples.testapp.generated.resources.driving_license_card_art
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
@@ -108,7 +101,7 @@ object TestAppUtils {
     }
 
     /*
-    fun generateEncodedDeviceResponse(
+    suspend fun generateEncodedDeviceResponse(
         consentFields: List<MdocConsentField>,
         encodedSessionTranscript: ByteArray
     ): ByteArray {
@@ -154,11 +147,12 @@ object TestAppUtils {
     private lateinit var documentData: NameSpacedData
     lateinit var documentStore: DocumentStore
 
-    private lateinit var storageEngine: StorageEngine
-    private lateinit var secureArea: SecureArea
-    private lateinit var secureAreaRepository: SecureAreaRepository
-    private lateinit var credentialFactory: CredentialFactory
-    lateinit var documentTypeRepository: DocumentTypeRepository
+    private val secureAreaRepository: SecureAreaRepository = SecureAreaRepository.build {
+        add(SoftwareSecureArea.create(platformStorage()))
+    }
+
+    private val credentialFactory: CredentialFactory = CredentialFactory()
+    val documentTypeRepository: DocumentTypeRepository
 
     private val certsValidFrom = LocalDate.parse("2024-12-01").atStartOfDayIn(TimeZone.UTC)
     private val certsValidUntil = LocalDate.parse("2034-12-01").atStartOfDayIn(TimeZone.UTC)
@@ -182,20 +176,31 @@ object TestAppUtils {
     lateinit var issuerTrustManager: TrustManager
     lateinit var readerTrustManager: TrustManager
 
+    private val initJob: Job
+
     init {
-        storageEngine = EphemeralStorageEngine()
-        secureAreaRepository = SecureAreaRepository()
-        secureArea = SoftwareSecureArea(storageEngine)
-        secureAreaRepository.addImplementation(secureArea)
-        credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(MdocCredential::class) {
-                document, dataItem -> MdocCredential(document, dataItem)
+            document, dataItem -> MdocCredential(document).apply { deserialize(dataItem) }
         }
         generateKeysAndCerts()
         generateTrustManagers()
-        provisionDocument()
         documentTypeRepository = DocumentTypeRepository()
         documentTypeRepository.addDocumentType(DrivingLicense.getDocumentType())
+
+        initJob = CoroutineScope(Dispatchers.Main).launch {
+            init()
+        }
+    }
+
+    suspend fun init() {
+        val documentStore = DocumentStore(
+            platformStorage(),
+            secureAreaRepository,
+            credentialFactory
+        )
+        documentStore.withLock {
+            provisionDocument(documentStore)
+        }
     }
 
     private fun generateKeysAndCerts() {
@@ -306,13 +311,7 @@ object TestAppUtils {
     }
 
     @OptIn(ExperimentalResourceApi::class)
-    private fun provisionDocument() {
-        documentStore = DocumentStore(
-            storageEngine,
-            secureAreaRepository,
-            credentialFactory
-        )
-
+    private suspend fun provisionDocument(documentStore: DocumentStore) {
         // Create the document...
         val document = documentStore.createDocument(
             "testDrivingLicenseDocument"
@@ -353,18 +352,19 @@ object TestAppUtils {
             document,
             null,
             "AuthKeyDomain",
-            secureArea,
-            SoftwareCreateKeySettings.Builder()
-                .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
-                .build(),
+            secureAreaRepository.getImplementation(SoftwareSecureArea.IDENTIFIER)!!,
             "org.iso.18013.5.1.mDL"
-        )
+        ).apply {
+            generateKey(SoftwareCreateKeySettings.Builder()
+                .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
+                .build())
+        }
 
         // Generate an MSO and issuer-signed data for this authentication key.
         val msoGenerator = MobileSecurityObjectGenerator(
             "SHA-256",
             DrivingLicense.MDL_DOCTYPE,
-            mdocCredential.attestation.publicKey
+            mdocCredential.getAttestation().publicKey
         )
         msoGenerator.setValidityInfo(timeSigned, timeValidityBegin, timeValidityEnd, null)
         val issuerNameSpaces = MdocUtil.generateIssuerNameSpaces(

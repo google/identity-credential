@@ -12,14 +12,15 @@ import com.android.identity.flow.annotation.FlowMethod
 import com.android.identity.flow.annotation.FlowState
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.flow.server.Storage
 import com.android.identity.issuance.ApplicationSupport
 import com.android.identity.issuance.LandingUrlUnknownException
 import com.android.identity.issuance.WalletServerSettings
-import com.android.identity.issuance.common.cache
+import com.android.identity.flow.cache
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.funke.toJson
 import com.android.identity.issuance.validateDeviceAssertionBindingKeys
 import com.android.identity.securearea.KeyAttestation
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import com.android.identity.util.toBase64Url
 import com.android.identity.util.validateAndroidKeyAttestation
@@ -30,6 +31,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -47,12 +49,24 @@ class ApplicationSupportState(
         // clientId field above! It identifies our wallet app to OpenId4VCI servers, whereas
         // clientId identifies a particular wallet app instance to the wallet server.
         const val FUNKE_CLIENT_ID = "60f8c117-b692-4de8-8f7f-636ff852baa6"
+
+        val landingTableSpec = StorageTableSpec(
+            name = "LandingUrls",
+            supportPartitions = false,
+            supportExpiration = true
+        )
+
+        private val EXPIRATION = 1.days
     }
 
     @FlowMethod
     suspend fun createLandingUrl(env: FlowEnvironment): String {
-        val storage = env.getInterface(Storage::class)!!
-        val id = storage.insert("Landing", "", ByteString(LandingRecord(clientId).toCbor()))
+        val storage = env.getTable(landingTableSpec)
+        val id = storage.insert(
+            key = null,
+            data = ByteString(LandingRecord(clientId).toCbor()),
+            expiration = Clock.System.now() + EXPIRATION
+        )
         Logger.i(TAG, "Created landing URL '$id'")
         val configuration = env.getInterface(Configuration::class)!!
         val baseUrl = configuration.getValue("base_url")!!
@@ -68,15 +82,15 @@ class ApplicationSupportState(
             Logger.e(TAG, "baseUrl must start with $prefix, actual '$landingUrl'")
             throw IllegalStateException("baseUrl must start with $prefix")
         }
-        val storage = env.getInterface(Storage::class)!!
+        val storage = env.getTable(landingTableSpec)
         val id = landingUrl.substring(prefix.length)
         Logger.i(TAG, "Querying landing URL '$id'")
-        val recordData = storage.get("Landing", "", id)
+        val recordData = storage.get(id)
             ?: throw LandingUrlUnknownException("No landing url '$id'")
         val record = LandingRecord.fromCbor(recordData.toByteArray())
         if (record.resolved != null) {
             Logger.i(TAG, "Removed landing URL '$id'")
-            storage.delete("Landing", "", id)
+            storage.delete(id)
         }
         return record.resolved
     }
@@ -87,9 +101,8 @@ class ApplicationSupportState(
         keyAttestation: KeyAttestation,
         keyAssertion: DeviceAssertion
     ): String {
-        val storage = env.getInterface(Storage::class)!!
-        val clientRecord = ClientRecord.fromCbor(
-            storage.get("Clients", "", clientId)!!.toByteArray())
+        val storage = env.getTable(AuthenticationState.clientTableSpec)
+        val clientRecord = ClientRecord.fromCbor(storage.get(clientId)!!.toByteArray())
 
         clientRecord.deviceAttestation.validateAssertion(keyAssertion)
 
@@ -123,9 +136,8 @@ class ApplicationSupportState(
         keyAttestations: List<KeyAttestation>,
         keysAssertion: DeviceAssertion // holds AssertionBindingKeys
     ): String {
-        val storage = env.getInterface(Storage::class)!!
-        val clientRecord = ClientRecord.fromCbor(
-            storage.get("Clients", "", clientId)!!.toByteArray())
+        val storage = env.getTable(AuthenticationState.clientTableSpec)
+        val clientRecord = ClientRecord.fromCbor(storage.get(clientId)!!.toByteArray())
         val assertion = validateDeviceAssertionBindingKeys(
             env = env,
             deviceAttestation = clientRecord.deviceAttestation,

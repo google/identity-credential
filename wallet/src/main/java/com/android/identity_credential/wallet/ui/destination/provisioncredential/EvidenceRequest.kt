@@ -497,23 +497,34 @@ fun EvidenceRequestSetupCloudSecureAreaView(
     onAccept: () -> Unit,
     onError: (error: Throwable) -> Unit
 ) {
+    val cloudSecureAreaState = remember { mutableStateOf<CloudSecureArea?>(null) }
     println("secureAreaRepository: $secureAreaRepository")
-    val cloudSecureArea = secureAreaRepository.getImplementation(
-        evidenceRequest.cloudSecureAreaIdentifier
-    )
-    if (cloudSecureArea == null) {
-        throw IllegalStateException("Cannot create Secure Area with id ${evidenceRequest.cloudSecureAreaIdentifier}")
+    val scope = rememberCoroutineScope()
+    SideEffect {
+        scope.launch {
+            val cloudSecureArea = secureAreaRepository.getImplementation(
+                evidenceRequest.cloudSecureAreaIdentifier
+            )
+            if (cloudSecureArea == null) {
+                throw IllegalStateException("Cannot create Secure Area with id ${evidenceRequest.cloudSecureAreaIdentifier}")
+            }
+            if (cloudSecureArea !is CloudSecureArea) {
+                throw IllegalStateException("Expected type CloudSecureArea, got $cloudSecureArea")
+            }
+            if (cloudSecureArea.isRegistered) {
+                println("CSA already registered")
+                onAccept()
+            } else {
+                cloudSecureAreaState.value = cloudSecureArea
+            }
+        }
     }
-    if (cloudSecureArea !is CloudSecureArea) {
-        throw IllegalStateException("Expected type CloudSecureArea, got $cloudSecureArea")
-    }
-    if (cloudSecureArea.isRegistered) {
-        println("CSA already registered")
-        onAccept()
+
+    if (cloudSecureAreaState.value == null) {
+        Text("TODO: Waiting....")
         return
     }
 
-    val scope = rememberCoroutineScope()
     var chosenPassphrase by remember { mutableStateOf("") }
     var verifiedPassphrase by remember { mutableStateOf("") }
     var showMatchErrorText by remember { mutableStateOf(false) }
@@ -610,7 +621,7 @@ fun EvidenceRequestSetupCloudSecureAreaView(
             SideEffect {
                 scope.launch {
                     try {
-                        cloudSecureArea.register(
+                        cloudSecureAreaState.value!!.register(
                             chosenPassphrase,
                             evidenceRequest.passphraseConstraints,
                         ) { true }
@@ -1699,6 +1710,7 @@ fun EvidenceRequestOpenid4Vp(
 ) {
     val cx = LocalContext.current
     val credential = provisioningViewModel.selectedOpenid4VpCredential.value!!
+    val coroutineScope = rememberCoroutineScope()
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1744,7 +1756,11 @@ fun EvidenceRequestOpenid4Vp(
             }
             Button(
                 modifier = Modifier.padding(8.dp),
-                onClick = {provisioningViewModel.moveToNextEvidenceRequest()}
+                onClick = {
+                    coroutineScope.launch {
+                        provisioningViewModel.moveToNextEvidenceRequest()
+                    }
+                }
             ) {
                 Text(text = evidenceRequest.cancelText ?:
                     stringResource(id = R.string.presentation_evidence_cancel)

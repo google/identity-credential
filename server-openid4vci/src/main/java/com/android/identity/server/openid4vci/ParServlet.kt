@@ -1,17 +1,9 @@
 package com.android.identity.server.openid4vci
 
-import com.android.identity.crypto.X509Cert
-import com.android.identity.flow.handler.InvalidRequestException
-import com.android.identity.flow.server.Storage
-import com.android.identity.issuance.common.cache
-import com.android.identity.sdjwt.util.JsonWebKey
-import com.android.identity.util.fromBase64Url
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import kotlinx.coroutines.runBlocking
-import kotlinx.io.bytestring.ByteString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.seconds
 
 /**

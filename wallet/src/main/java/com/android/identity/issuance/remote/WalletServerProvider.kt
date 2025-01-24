@@ -25,6 +25,9 @@ import com.android.identity.issuance.WalletServerImpl
 import com.android.identity.issuance.wallet.WalletServerState
 import com.android.identity.device.DeviceCheck
 import com.android.identity.device.DeviceAttestation
+import com.android.identity.securearea.SecureAreaProvider
+import com.android.identity.storage.Storage
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import com.android.identity_credential.wallet.SettingsModel
 import kotlinx.coroutines.CoroutineScope
@@ -38,7 +41,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.io.bytestring.ByteString
 import kotlin.time.Duration.Companion.seconds
-
 
 /**
  * An object used to connect to a remote wallet server.
@@ -61,7 +63,8 @@ import kotlin.time.Duration.Companion.seconds
  */
 class WalletServerProvider(
     private val context: Context,
-    private val secureArea: AndroidKeystoreSecureArea,
+    private val storage: Storage,
+    private val secureAreaProvider: SecureAreaProvider<AndroidKeystoreSecureArea>,
     private val settingsModel: SettingsModel,
     private val getWalletApplicationCapabilities: suspend () -> WalletApplicationCapabilities
 ) {
@@ -73,12 +76,10 @@ class WalletServerProvider(
     private var notificationsJob: Job? = null
     private var resetListeners = mutableListOf<()->Unit>()
 
-    private val storage = StorageImpl(context, "wallet_servers")
-
     val assertionMaker = DeviceAssertionMaker { assertionFactory ->
         val applicationSupportConnection = applicationSupportSupplier!!.getApplicationSupport()
         DeviceCheck.generateAssertion(
-            secureArea = secureArea,
+            secureArea = secureAreaProvider.get(),
             deviceAttestationId = applicationSupportConnection.deviceAttestationId,
             assertion = assertionFactory(applicationSupportConnection.clientId)
         )
@@ -99,6 +100,12 @@ class WalletServerProvider(
                 return ciphertext
             }
         }
+
+        private val hostsTableSpec = StorageTableSpec(
+            name = "Hosts",
+            supportExpiration = false,
+            supportPartitions = false
+        )
     }
 
     private val baseUrl: String
@@ -261,7 +268,7 @@ class WalletServerProvider(
             }
             val environment = LocalDevelopmentEnvironment(
                 context, settingsModel, assertionMaker,
-                secureArea, notifier, applicationSupportSupplier)
+                secureAreaProvider, notifier, applicationSupportSupplier)
             dispatcher = WrapperFlowDispatcher(builder.build(
                 environment,
                 noopCipher,
@@ -286,11 +293,8 @@ class WalletServerProvider(
             flowNotifier = notifier
         )
 
-        val connectionDataBytes = storage.get(
-            table = "Hosts",
-            peerId = "",
-            key = baseUrl
-        )
+        val hostsTable = storage.getTable(hostsTableSpec)
+        val connectionDataBytes = hostsTable.get(key = baseUrl)
         var connectionData = if (connectionDataBytes == null) {
             null
         } else {
@@ -301,23 +305,22 @@ class WalletServerProvider(
         val deviceAttestation: DeviceAttestation?
         if (connectionData?.clientId != challenge.clientId) {
             // new client
-            val result = DeviceCheck.generateAttestation(secureArea, challenge.clientId)
+            val result = DeviceCheck.generateAttestation(
+                secureAreaProvider.get(),
+                challenge.clientId
+            )
             deviceAttestation = result.deviceAttestation
             connectionData = WalletServerConnectionData(
                 clientId = challenge.clientId,
                 deviceAttestationId = result.deviceAttestationId
             )
             if (connectionDataBytes == null) {
-                storage.insert(
-                    table = "Hosts",
-                    peerId = "",
+                hostsTable.insert(
                     data = ByteString(connectionData.toCbor()),
                     key = baseUrl
                 )
             } else {
-                storage.update(
-                    table = "Hosts",
-                    peerId = "",
+                hostsTable.update(
                     data = ByteString(connectionData.toCbor()),
                     key = baseUrl
                 )
@@ -328,7 +331,7 @@ class WalletServerProvider(
         authentication.authenticate(ClientAuthentication(
             deviceAttestation,
             DeviceCheck.generateAssertion(
-                secureArea,
+                secureAreaProvider.get(),
                 connectionData.deviceAttestationId,
                 AssertionNonce(challenge.nonce)
             ),

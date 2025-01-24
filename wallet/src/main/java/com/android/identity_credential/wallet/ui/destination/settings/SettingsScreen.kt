@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.android.identity_credential.wallet.ui.ScreenWithAppBarAndBackButton
 import com.android.identity_credential.wallet.ui.SettingSectionSubtitle
 import com.android.identity_credential.wallet.ui.SettingString
 import com.android.identity_credential.wallet.ui.SettingToggle
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -55,6 +57,7 @@ fun SettingsScreen(
     onNavigate: (String) -> Unit
 ) {
     var confirmServerChange by remember { mutableStateOf<ConfirmServerChange?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     if (confirmServerChange != null) {
         AlertDialog(
             onDismissRequest = { confirmServerChange = null },
@@ -63,11 +66,13 @@ fun SettingsScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        for (documentId in documentStore.listDocuments()) {
-                            documentStore.deleteDocument(documentId)
+                        coroutineScope.launch {
+                            for (documentId in documentStore.listDocuments()) {
+                                documentStore.deleteDocument(documentId)
+                            }
+                            confirmServerChange!!.onConfirm()
+                            confirmServerChange = null
                         }
-                        confirmServerChange!!.onConfirm()
-                        confirmServerChange = null
                     }) {
                     Text(stringResource(R.string.settings_screen_confirm_set_server_url_dialog_confirm))
                 }

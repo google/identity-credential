@@ -36,11 +36,7 @@ import co.nstant.`in`.cbor.model.Special
 import co.nstant.`in`.cbor.model.SpecialType
 import co.nstant.`in`.cbor.model.UnicodeString
 import co.nstant.`in`.cbor.model.UnsignedInteger
-import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.EcCurve
-import com.android.identity.securearea.KeyLockedException
-import com.android.identity.securearea.KeyUnlockData
-import com.android.identity.securearea.SecureArea
 import com.android.identity.util.Logger.w
 import org.bouncycastle.asn1.ASN1Encodable
 import org.bouncycastle.asn1.ASN1InputStream
@@ -542,61 +538,6 @@ object Util {
         } catch (e: SignatureException) {
             throw IllegalStateException("Error signing data", e)
         }
-        val builder = CborBuilder()
-        val array: ArrayBuilder<CborBuilder> = builder.addArray()
-        array.add(protectedHeadersBytes)
-        val unprotectedHeaders: MapBuilder<ArrayBuilder<CborBuilder>> = array.addMap()
-        try {
-            if (!certificateChain.isNullOrEmpty()) {
-                if (certificateChain.size == 1) {
-                    val cert = certificateChain.iterator().next()
-                    unprotectedHeaders.put(COSE_LABEL_X5CHAIN, cert.encoded)
-                } else {
-                    val x5chainsArray: ArrayBuilder<MapBuilder<ArrayBuilder<CborBuilder>>> =
-                        unprotectedHeaders.putArray(
-                            COSE_LABEL_X5CHAIN
-                        )
-                    for (cert in certificateChain) {
-                        x5chainsArray.add(cert.encoded)
-                    }
-                }
-            }
-        } catch (e: CertificateEncodingException) {
-            throw IllegalStateException("Error encoding certificate", e)
-        }
-        if (data == null || data.isEmpty()) {
-            array.add(SimpleValue(SimpleValueType.NULL))
-        } else {
-            array.add(data)
-        }
-        array.add(coseSignature)
-        return builder.build().first()
-    }
-
-    @JvmStatic
-    @Throws(KeyLockedException::class)
-    fun coseSign1Sign(
-        secureArea: SecureArea,
-        alias: String,
-        signatureAlgorithm: Algorithm,
-        keyUnlockData: KeyUnlockData?,
-        data: ByteArray?,
-        detachedContent: ByteArray?,
-        certificateChain: Collection<X509Certificate>?
-    ): DataItem {
-        val dataLen = data?.size ?: 0
-        val detachedContentLen = detachedContent?.size ?: 0
-        require(!(dataLen > 0 && detachedContentLen > 0)) { "data and detachedContent cannot both be non-empty" }
-        val protectedHeaders = CborBuilder()
-        val protectedHeadersMap: MapBuilder<CborBuilder> = protectedHeaders.addMap()
-        protectedHeadersMap.put(
-            COSE_LABEL_ALG,
-            signatureAlgorithm.coseAlgorithmIdentifier.toLong()
-        )
-        val protectedHeadersBytes = cborEncode(protectedHeaders.build().first())
-        val toBeSigned = coseBuildToBeSigned(protectedHeadersBytes, data, detachedContent)
-        val signature = secureArea.sign(alias, signatureAlgorithm, toBeSigned, keyUnlockData)
-        val coseSignature = signature.toCoseEncoded()
         val builder = CborBuilder()
         val array: ArrayBuilder<CborBuilder> = builder.addArray()
         array.add(protectedHeadersBytes)

@@ -4,7 +4,6 @@ import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.CborArray
 import com.android.identity.cbor.CborMap
 import com.android.identity.cbor.Simple
-import com.android.identity.cbor.Tstr
 import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.Crypto
 import com.android.identity.crypto.EcCurve
@@ -13,7 +12,7 @@ import com.android.identity.crypto.EcPublicKeyDoubleCoordinate
 import com.android.identity.document.NameSpacedData
 import com.android.identity.flow.handler.InvalidRequestException
 import com.android.identity.flow.server.Resources
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.mdoc.response.DeviceResponseParser
 import com.android.identity.util.fromBase64Url
 import jakarta.servlet.http.HttpServletRequest
@@ -73,14 +72,14 @@ class AuthorizeServlet : BaseServlet() {
     private fun getOpenid4Vp(code: String, resp: HttpServletResponse) {
         val id = codeToId(OpaqueIdType.OPENID4VP_CODE, code)
         val stateRef = idToCode(OpaqueIdType.OPENID4VP_STATE, id, 5.minutes)
-        val storage = environment.getInterface(Storage::class)!!
         val responseUri = "$baseUrl/openid4vp-response"
         val jwt = runBlocking {
-            val state = IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            val state = IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
             val session = initiateOpenid4Vp(state.clientId, responseUri, stateRef)
             state.pidReadingKey = session.privateKey
             state.pidNonce = session.nonce
-            storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
+            storage.update(key = id, data = ByteString(state.toCbor()))
             session.jwt
         }
         resp.contentType = "application/oauth-authz-req+jwt"
@@ -94,7 +93,6 @@ class AuthorizeServlet : BaseServlet() {
         val code = req.getParameter("authorizationCode")
         val pidData = req.getParameter("pidData")
         val id = codeToId(OpaqueIdType.AUTHORIZATION_STATE, code)
-        val storage = environment.getInterface(Storage::class)!!
         val baseUri = URI(this.baseUrl)
 
         val tokenData = Json.parseToJsonElement(pidData).jsonObject["token"]!!
@@ -104,7 +102,8 @@ class AuthorizeServlet : BaseServlet() {
 
         runBlocking {
             val origin = baseUri.scheme + "://" + baseUri.authority
-            val state = IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            val state = IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
             val encodedKey = (state.pidReadingKey!!.publicKey as EcPublicKeyDoubleCoordinate).asUncompressedPointEncoding
             val sessionTranscript = generateBrowserSessionTranscript(
                 Crypto.digest(Algorithm.SHA256, id.toByteArray()),
@@ -130,7 +129,7 @@ class AuthorizeServlet : BaseServlet() {
             }
 
             state.credentialData = data.build()
-            storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
+            storage.update(key = id, data = ByteString(state.toCbor()))
         }
         val issuerState = idToCode(OpaqueIdType.ISSUER_STATE, id, 5.minutes)
         resp.sendRedirect("finish_authorization?issuer_state=$issuerState")

@@ -1,9 +1,11 @@
 package com.android.identity_credential.wallet.logging
 
 import com.android.identity.cbor.annotation.CborSerializable
-import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.Storage
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import kotlinx.datetime.Clock
+import kotlinx.io.bytestring.ByteString
 
 /**
  * Event Logging facility.
@@ -15,9 +17,13 @@ private const val TAG = "EventLogger"
 
 private var eventLoggingEnabled = false
 
-class EventLogger(private val storageEngine: StorageEngine) {
+class EventLogger(private val storage: Storage) {
     companion object {
-        const val STORAGE_KEY_PREFIX = "event_log_"
+        internal val eventTableSpec = StorageTableSpec(
+            name = "Events",
+            supportExpiration = false,
+            supportPartitions = false
+        )
     }
 
     fun startLoggingEvents() {
@@ -66,7 +72,7 @@ class EventLogger(private val storageEngine: StorageEngine) {
         val shareType: ShareType
     )
 
-    fun addMDocPresentationEntry(
+    suspend fun addMDocPresentationEntry(
         documentId: String,
         sessionTranscript: ByteArray,
         deviceRequestCbor: ByteArray,
@@ -79,7 +85,7 @@ class EventLogger(private val storageEngine: StorageEngine) {
             return // Exit immediately if logging is disabled
         }
 
-        val uniqueId = Clock.System.now()
+        val timestamp = Clock.System.now()
         val requesterInfo = RequesterInfo(
             requester = requesterType,
             shareType = shareType
@@ -87,7 +93,7 @@ class EventLogger(private val storageEngine: StorageEngine) {
         val serializedEntry: ByteArray
 
         val event = MdocPresentationEvent(
-            timestamp = uniqueId,
+            timestamp = timestamp,
             documentId = documentId,
             sessionTranscript = sessionTranscript,
             deviceRequestCbor = deviceRequestCbor,
@@ -96,40 +102,39 @@ class EventLogger(private val storageEngine: StorageEngine) {
         )
         serializedEntry = event.toCbor()
 
-        val key = STORAGE_KEY_PREFIX + uniqueId
-        storageEngine.put(key, serializedEntry)
+        storage.getTable(eventTableSpec).insert(key = null, ByteString(serializedEntry))
     }
 
-    fun getEntries(documentId: String): List<Event> {
+    suspend fun getEntries(documentId: String): List<Event> {
         val entries = mutableListOf<Event>()
-        for (key in storageEngine.enumerate()) {
-            if (key.startsWith(STORAGE_KEY_PREFIX)) {
-                val value = storageEngine[key]
-                if (value != null) {
-                    try {
-                        val event = Event.fromCbor(value)
-                        when {
-                            event is MdocPresentationEvent && event.documentId == documentId -> entries.add(event)
-                            event is DocumentUpdateCheckEvent && event.documentId == documentId -> entries.add(event)
-                        }
-                    } catch(e: IllegalStateException) {
-                        Logger.w(TAG, "Failed to deserialize event for key: $key", e)
+        val table = storage.getTable(eventTableSpec)
+        for (key in table.enumerate()) {
+            val value = table.get(key)
+            if (value != null) {
+                try {
+                    val event = Event.fromCbor(value.toByteArray())
+                    event.id = key
+                    when {
+                        event is MdocPresentationEvent && event.documentId == documentId -> entries.add(event)
+                        event is DocumentUpdateCheckEvent && event.documentId == documentId -> entries.add(event)
                     }
+                } catch(e: IllegalStateException) {
+                    Logger.w(TAG, "Failed to deserialize event for key: $key", e)
                 }
             }
         }
-        return entries
+        return entries.sortedBy { event -> event.timestamp }
     }
 
-    fun deleteEntries(entries: List<Event>) {
+    suspend fun deleteEntries(entries: List<Event>) {
+        val table = storage.getTable(eventTableSpec)
         for (entry in entries) {
-            val key = STORAGE_KEY_PREFIX + entry.timestamp
-            storageEngine.delete(key)
-            Logger.i(TAG, "Deleted entry with key: $key")
+            table.delete(entry.id)
+            Logger.i(TAG, "Deleted entry with timestamp: ${entry.timestamp}")
         }
     }
 
-    fun deleteEntriesForDocument(documentId: String) {
+    suspend fun deleteEntriesForDocument(documentId: String) {
         val entriesToDelete = getEntries(documentId)
         deleteEntries(entriesToDelete)
         Logger.i(TAG, "Deleted all entries for documentId: $documentId")

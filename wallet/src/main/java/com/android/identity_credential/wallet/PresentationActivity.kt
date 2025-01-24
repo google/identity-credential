@@ -178,23 +178,23 @@ class PresentationActivity : FragmentActivity() {
     // Listener for obtaining request bytes from NFC/QR presentation engagements
     val deviceRetrievalHelperListener = object : DeviceRetrievalHelper.Listener {
 
-        override fun onEReaderKeyReceived(eReaderKey: EcPublicKey) {
+        override suspend fun onEReaderKeyReceived(eReaderKey: EcPublicKey) {
             Logger.i(TAG, "onEReaderKeyReceived")
         }
 
-        override fun onDeviceRequest(deviceRequestBytes: ByteArray) {
+        override suspend fun onDeviceRequest(deviceRequestBytes: ByteArray) {
             Logger.i(TAG, "onDeviceRequest")
 
             deviceRequestByteArray = deviceRequestBytes
             phase.value = Phase.REQUEST_AVAILABLE
         }
 
-        override fun onDeviceDisconnected(transportSpecificTermination: Boolean) {
+        override suspend fun onDeviceDisconnected(transportSpecificTermination: Boolean) {
             Logger.i(TAG, "onDeviceDisconnected $transportSpecificTermination")
             disconnect()
         }
 
-        override fun onError(error: Throwable) {
+        override suspend fun onError(error: Throwable) {
             Logger.e(TAG, "onError", error)
             disconnect()
         }
@@ -387,16 +387,20 @@ class PresentationActivity : FragmentActivity() {
                                     mdocCredential
                                 )
 
+                                val consentDocument = mdocCredential.document.withLock {
+                                    ConsentDocument(
+                                        name = mdocCredential.document.documentConfiguration.displayName,
+                                        description = mdocCredential.document.documentConfiguration.typeDisplayName,
+                                        cardArt = mdocCredential.document.documentConfiguration.cardArt,
+                                    )
+                                }
+
                                 // show the Presentation Flow for and get the response bytes for
                                 // the generated Document
                                 val documentCborBytes = showMdocPresentmentFlow(
                                     activity = this@PresentationActivity,
                                     consentFields = consentFields,
-                                    document = ConsentDocument(
-                                        name = mdocCredential.document.documentConfiguration.displayName,
-                                        description = mdocCredential.document.documentConfiguration.typeDisplayName,
-                                        cardArt = mdocCredential.document.documentConfiguration.cardArt,
-                                    ),
+                                    document = consentDocument,
                                     relyingParty = ConsentRelyingParty(trustPoint),
                                     credential = mdocCredential,
                                     encodedSessionTranscript = deviceRetrievalHelper!!.sessionTranscript
@@ -499,7 +503,9 @@ class PresentationActivity : FragmentActivity() {
      * @return a matching [MdocCredential] from either on-screen Document or [DocumentStore]
      *      or null if there are no matching MdocCredential
      */
-    private fun findMdocCredentialForRequest(docRequest: DeviceRequestParser.DocRequest): MdocCredential? {
+    private suspend fun findMdocCredentialForRequest(
+        docRequest: DeviceRequestParser.DocRequest
+    ): MdocCredential? = walletApp.documentStore.withLock {
         val now = Clock.System.now()
 
         // prefer the document that is on-screen if possible
@@ -511,7 +517,7 @@ class PresentationActivity : FragmentActivity() {
                     docRequest.docType,
                     now)
                 if (mdocCredential != null) {
-                    return mdocCredential
+                    return@withLock mdocCredential
                 }
             }
         }
@@ -524,11 +530,11 @@ class PresentationActivity : FragmentActivity() {
                 docRequest.docType,
                 now)
             if (mdocCredential != null) {
-                return mdocCredential
+                return@withLock mdocCredential
             }
         }
 
-        return null
+        null
     }
 
     private fun disconnect() {

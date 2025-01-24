@@ -7,7 +7,11 @@ import com.android.identity.android.storage.AndroidStorageEngine
 import com.android.identity.securearea.CreateKeySettings
 import com.android.identity.securearea.SecureArea
 import com.android.identity.util.AndroidContexts
+import com.android.identity.securearea.SecureAreaProvider
+import com.android.identity.storage.Storage
+import com.android.identity.storage.android.AndroidStorage
 import kotlinx.io.files.Path
+import java.io.File
 import java.net.NetworkInterface
 
 actual val platform = Platform.ANDROID
@@ -26,19 +30,22 @@ actual fun getLocalIpAddress(): String {
     throw IllegalStateException("Unable to determine address")
 }
 
-private val androidKeystoreStorage: AndroidStorageEngine by lazy {
-    AndroidStorageEngine.Builder(
-        AndroidContexts.applicationContext,
-        Path(AndroidContexts.applicationContext.dataDir.path, "testapp-default.bin")
-    ).build()
+private val androidStorage: AndroidStorage by lazy {
+    AndroidStorage(
+        File(AndroidContexts.applicationContext.dataDir.path, "storage.db").absolutePath
+    )
 }
 
-private val androidKeystoreSecureArea: AndroidKeystoreSecureArea by lazy {
-    AndroidKeystoreSecureArea(AndroidContexts.applicationContext, androidKeystoreStorage)
+actual fun platformStorage(): Storage {
+    return androidStorage
 }
 
-actual fun platformSecureArea(): SecureArea {
-    return androidKeystoreSecureArea
+private val androidKeystoreSecureAreaProvider = SecureAreaProvider {
+    AndroidKeystoreSecureArea.create(AndroidContexts.applicationContext, androidStorage)
+}
+
+actual fun platformSecureAreaProvider(): SecureAreaProvider<SecureArea> {
+    return androidKeystoreSecureAreaProvider
 }
 
 actual fun platformKeySetting(clientId: String): CreateKeySettings {

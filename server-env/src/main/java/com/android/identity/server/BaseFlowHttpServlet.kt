@@ -8,8 +8,9 @@ import com.android.identity.flow.handler.FlowNotificationsLocalPoll
 import com.android.identity.flow.handler.HttpHandler
 import com.android.identity.flow.handler.SimpleCipher
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.flow.transport.HttpTransport
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -28,6 +29,12 @@ import kotlin.random.Random
 abstract class BaseFlowHttpServlet : BaseHttpServlet() {
     companion object {
         const val TAG = "BaseFlowHttpServlet"
+
+        private val flowRootStateTableSpec = StorageTableSpec(
+            name = "FlowRootState",
+            supportPartitions = false,
+            supportExpiration = false
+        )
     }
 
     private lateinit var httpHandler: HttpHandler
@@ -37,18 +44,17 @@ abstract class BaseFlowHttpServlet : BaseHttpServlet() {
         buildExceptionMap(exceptionMapBuilder)
         val dispatcherBuilder = FlowDispatcherLocal.Builder()
         buildDispatcher(dispatcherBuilder)
-        val storage = env.getInterface(Storage::class)!!
         val messageEncryptionKey = runBlocking {
-            val key = storage.get("RootState", "", "messageEncryptionKey")
+            val storage = env.getTable(flowRootStateTableSpec)
+            val key = storage.get("messageEncryptionKey")
             if (key != null) {
                 key.toByteArray()
             } else {
                 val newKey = Random.nextBytes(16)
                 storage.insert(
-                    "RootState",
-                    "",
-                    ByteString(newKey),
-                    "messageEncryptionKey")
+                    key = "messageEncryptionKey",
+                    data = ByteString(newKey),
+                )
                 newKey
             }
         }

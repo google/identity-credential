@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,18 +41,23 @@ import com.android.identity.crypto.EcCurve
 import com.android.identity.securearea.KeyLockedException
 import com.android.identity.securearea.KeyPurpose
 import com.android.identity.securearea.KeyUnlockData
+import com.android.identity.securearea.SecureAreaProvider
 import com.android.identity.securearea.software.SoftwareCreateKeySettings
 import com.android.identity.securearea.software.SoftwareKeyUnlockData
 import com.android.identity.securearea.software.SoftwareSecureArea
 import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.ephemeral.EphemeralStorage
 import com.android.identity.util.Logger
 import com.android.identity.util.toHex
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 private val TAG = "SoftwareSecureAreaScreen"
 
-private val softwareSecureArea = SoftwareSecureArea(EphemeralStorageEngine())
+private val softwareSecureAreaProvider = SecureAreaProvider {
+    SoftwareSecureArea.create(EphemeralStorage())
+}
 
 private data class swPassphraseTestConfiguration(
     val keyPurpose: KeyPurpose,
@@ -64,6 +70,7 @@ private data class swPassphraseTestConfiguration(
 fun SoftwareSecureAreaScreen(
     showToast: (message: String) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
 
     val swShowPassphraseDialog = remember {
         mutableStateOf<swPassphraseTestConfiguration?>(null)
@@ -76,14 +83,16 @@ fun SoftwareSecureAreaScreen(
             },
             onContinueButtonClicked = { passphraseEnteredByUser: String ->
                 val configuration = swShowPassphraseDialog.value!!
-                swTest(
-                    configuration.keyPurpose,
-                    configuration.curve,
-                    "1111",
-                    passphraseEnteredByUser,
-                    showToast
-                )
-                swShowPassphraseDialog.value = null;
+                coroutineScope.launch {
+                    swTest(
+                        configuration.keyPurpose,
+                        configuration.curve,
+                        "1111",
+                        passphraseEnteredByUser,
+                        showToast
+                    )
+                    swShowPassphraseDialog.value = null
+                }
             }
         )
     }
@@ -130,13 +139,15 @@ fun SoftwareSecureAreaScreen(
                                 swShowPassphraseDialog.value =
                                     swPassphraseTestConfiguration(keyPurpose, curve, description)
                             } else {
-                                swTest(
-                                    keyPurpose,
-                                    curve,
-                                    null,
-                                    null,
-                                    showToast
-                                )
+                                coroutineScope.launch {
+                                    swTest(
+                                        keyPurpose,
+                                        curve,
+                                        null,
+                                        null,
+                                        showToast
+                                    )
+                                }
                             }
                         })
                         {
@@ -240,7 +251,7 @@ private fun ShowPassphraseDialog(
     }
 }
 
-private fun swTest(
+private suspend fun swTest(
     keyPurpose: KeyPurpose,
     curve: EcCurve,
     passphrase: String?,
@@ -258,7 +269,7 @@ private fun swTest(
     }
 }
 
-private fun swTestUnguarded(
+private suspend fun swTestUnguarded(
     keyPurpose: KeyPurpose,
     curve: EcCurve,
     passphrase: String?,
@@ -271,6 +282,9 @@ private fun swTestUnguarded(
     if (passphrase != null) {
         builder.setPassphraseRequired(true, passphrase, null)
     }
+
+    val softwareSecureArea = softwareSecureAreaProvider.get()
+
     softwareSecureArea.createKey("testKey", builder.build())
 
     var unlockData: KeyUnlockData? = null

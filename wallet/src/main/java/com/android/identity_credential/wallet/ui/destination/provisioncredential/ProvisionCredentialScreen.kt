@@ -15,6 +15,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +76,8 @@ import com.nimbusds.jwt.EncryptedJWT
 import com.nimbusds.jwt.JWT
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.PlainJWT
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.json.JSONObject
@@ -164,6 +167,7 @@ fun ProvisionDocumentScreen(
                     }
 
                     is EvidenceRequestSetupCloudSecureArea -> {
+                        val coroutineScope = rememberCoroutineScope()
                         EvidenceRequestSetupCloudSecureAreaView(
                             context = context,
                             secureAreaRepository = secureAreaRepository,
@@ -175,9 +179,11 @@ fun ProvisionDocumentScreen(
                                 )
                             },
                             onError = { error ->
-                                provisioningViewModel.evidenceCollectionFailed(
-                                    error = error
-                                )
+                                coroutineScope.launch {
+                                    provisioningViewModel.evidenceCollectionFailed(
+                                        error = error
+                                    )
+                                }
                             }
                         )
                     }
@@ -487,14 +493,17 @@ private suspend fun showPresentmentFlowAndGetDeviceResponse(
     websiteOrigin: String?,
     encodedSessionTranscript: ByteArray,
 ): ByteArray {
-    val documentCborBytes = showMdocPresentmentFlow(
-        activity = fragmentActivity,
-        consentFields = consentFields,
-        document = ConsentDocument(
+    val consentDocument = mdocCredential.document.withLock {
+        ConsentDocument(
             name = mdocCredential.document.documentConfiguration.displayName,
             description = mdocCredential.document.documentConfiguration.typeDisplayName,
             cardArt = mdocCredential.document.documentConfiguration.cardArt,
-        ),
+        )
+    }
+    val documentCborBytes = showMdocPresentmentFlow(
+        activity = fragmentActivity,
+        consentFields = consentFields,
+        document = consentDocument,
         relyingParty = ConsentRelyingParty(trustPoint, websiteOrigin),
         credential = mdocCredential,
         encodedSessionTranscript = encodedSessionTranscript,

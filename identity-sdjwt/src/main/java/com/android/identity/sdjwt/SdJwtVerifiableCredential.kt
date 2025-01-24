@@ -130,7 +130,7 @@ class SdJwtVerifiableCredential(
         }
     }
 
-    fun createPresentation(secureArea: SecureArea?,
+    suspend fun createPresentation(secureArea: SecureArea?,
                            alias: String?,
                            keyUnlockData: KeyUnlockData?,
                            alg: Algorithm,

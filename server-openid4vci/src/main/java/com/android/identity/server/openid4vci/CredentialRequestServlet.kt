@@ -6,7 +6,7 @@ import com.android.identity.crypto.EcCurve
 import com.android.identity.crypto.EcPublicKeyDoubleCoordinate
 import com.android.identity.documenttype.knowntypes.EUPersonalID
 import com.android.identity.flow.handler.InvalidRequestException
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.util.toBase64Url
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -34,12 +34,12 @@ class CredentialRequestServlet : BaseServlet() {
         val code = params["code"]?.jsonPrimitive?.content
             ?: throw InvalidRequestException("missing parameter 'code'")
         val id = codeToId(OpaqueIdType.PID_READING, code)
-        val storage = environment.getInterface(Storage::class)!!
         runBlocking {
-            val state = IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            val state = IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
             val nonce = Crypto.digest(Algorithm.SHA256, id.toByteArray()).toBase64Url()
             state.pidReadingKey = Crypto.createEcPrivateKey(EcCurve.P256)
-            storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
+            storage.update(id, ByteString(state.toCbor()))
             val pidPublicKey = (state.pidReadingKey!!.publicKey as EcPublicKeyDoubleCoordinate)
                 .asUncompressedPointEncoding.toBase64Url()
             val fullPid = EUPersonalID.getDocumentType().sampleRequests.first { it.id == "full" }

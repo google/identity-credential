@@ -19,6 +19,8 @@ import com.android.identity.securearea.SecureAreaRepository
 import com.android.identity.securearea.software.SoftwareCreateKeySettings
 import com.android.identity.securearea.software.SoftwareSecureArea
 import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.ephemeral.EphemeralStorage
+import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.boolean
@@ -40,8 +42,7 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 
 class SdJwtVcTest {
-
-    private lateinit var secureArea: SoftwareSecureArea
+    private lateinit var storage: EphemeralStorage
     private lateinit var secureAreaRepository: SecureAreaRepository
     private lateinit var credentialFactory: CredentialFactory
     private lateinit var storageEngine: EphemeralStorageEngine
@@ -56,115 +57,120 @@ class SdJwtVcTest {
     @Before
     fun setup() {
         Security.insertProviderAt(BouncyCastleProvider(), 1)
-        storageEngine = EphemeralStorageEngine()
-        secureAreaRepository = SecureAreaRepository()
-        secureArea = SoftwareSecureArea(storageEngine)
-        secureAreaRepository.addImplementation(secureArea)
+        storage = EphemeralStorage()
+        secureAreaRepository = SecureAreaRepository.build {
+            add(SoftwareSecureArea.create(storage))
+        }
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(KeyBoundSdJwtVcCredential::class) {
-            document, dataItem ->  KeyBoundSdJwtVcCredential(document, dataItem)
+            document, dataItem ->  KeyBoundSdJwtVcCredential(document).apply { deserialize(dataItem) }
         }
-        provisionCredential()
     }
 
-    private fun provisionCredential() {
+    private suspend fun provisionCredential() {
         val documentStore = DocumentStore(
-            storageEngine,
+            storage,
             secureAreaRepository,
             credentialFactory
         )
 
-        // Create the credential on the holder device...
-        document = documentStore.createDocument(
-            "testDocument",
-        )
+        documentStore.withLock {
+            // Create the credential on the holder device...
+            document = documentStore.createDocument(
+                "testDocument",
+            )
 
-        // Create an authentication key...
-        timeSigned = Clock.System.now()
-        timeValidityBegin = timeSigned.plus(1.hours)
-        timeValidityEnd = timeSigned.plus(10.days)
-        credential = KeyBoundSdJwtVcCredential(
-            document,
-            null,
-            "domain",
-            secureArea,
-            SoftwareCreateKeySettings.Builder()
-                .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
-                .build(),
-            "IdentityCredential",
-        )
+            // Create an authentication key...
+            timeSigned = Clock.System.now()
+            timeValidityBegin = timeSigned.plus(1.hours)
+            timeValidityEnd = timeSigned.plus(10.days)
+            credential = KeyBoundSdJwtVcCredential(
+                document,
+                null,
+                "domain",
+                secureAreaRepository.getImplementation(SoftwareSecureArea.IDENTIFIER)!!,
+                "IdentityCredential",
+            ).apply {
+                generateKey(SoftwareCreateKeySettings.Builder()
+                    .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
+                    .build(),
+                )
+            }
 
-        // at the issuer, start creating the credential...
-        val identityAttributes = buildJsonObject {
-            put("name", "Elisa Beckett")
-            put("given_name", "Elisa")
-            put("family_name", "Becket")
-            put("over_18", true)
-            put("over_21", true)
-            put("address", buildJsonObject {
-                put("street_address",  "123 Main St")
-                put("locality", "Anytown")
-                put("region",  "Anystate")
-                put("country", "US")
-            })
+            // at the issuer, start creating the credential...
+            val identityAttributes = buildJsonObject {
+                put("name", "Elisa Beckett")
+                put("given_name", "Elisa")
+                put("family_name", "Becket")
+                put("over_18", true)
+                put("over_21", true)
+                put("address", buildJsonObject {
+                    put("street_address", "123 Main St")
+                    put("locality", "Anytown")
+                    put("region", "Anystate")
+                    put("country", "US")
+                })
+            }
+
+            val issuerKey = Crypto.createEcPrivateKey(EcCurve.P256)
+            val validFrom = Clock.System.now()
+            val validUntil = validFrom + 5.days
+            issuerCert = X509Cert.Builder(
+                publicKey = issuerKey.publicKey,
+                signingKey = issuerKey,
+                signatureAlgorithm = issuerKey.curve.defaultSigningAlgorithm,
+                serialNumber = ASN1Integer(1L),
+                subject = X500Name.fromName("CN=State of Utopia"),
+                issuer = X500Name.fromName("CN=State of Utopia"),
+                validFrom = validFrom,
+                validUntil = validUntil
+            )
+                .includeSubjectKeyIdentifier()
+                .setKeyUsage(setOf(X509KeyUsage.DIGITAL_SIGNATURE))
+                .build()
+
+            // Issuer knows that it will use ECDSA with SHA-256.
+            // Public keys and cert chains will be at https://example-issuer.com/...
+            val sdJwtVcGenerator = SdJwtVcGenerator(
+                random = Random(42),
+                payload = identityAttributes,
+                issuer = Issuer("https://example-issuer.com", Algorithm.ES256, "key-1")
+            )
+
+            sdJwtVcGenerator.publicKey = JsonWebKey(credential.getAttestation().publicKey)
+            sdJwtVcGenerator.timeSigned = timeSigned
+            sdJwtVcGenerator.timeValidityBegin = timeValidityBegin
+            sdJwtVcGenerator.timeValidityEnd = timeValidityEnd
+
+            val sdJwt = sdJwtVcGenerator.generateSdJwt(issuerKey)
+            // could have also said
+            //
+            // sdJwt = sdJwtVcGenerator.generateSdJwt {
+            //    toBeSigned, issuer ->
+            //        // find some way to sign toBeSigned, using the key indicated in
+            //        // issuer (which also has the alg in it) and return the signature
+            // }
+            //
+            // for example:
+            //
+            // sdJwt = sdJwtVcGenerator.generateSdJwt {
+            //    toBeSigned, issuer ->
+            //       Signature.getSignerFor(issuer.alg).with(issuerKeyPair.private).sign(toBeSigned)
+            // }
+            //
+
+            credential.certify(
+                sdJwt.toString().toByteArray(),
+                timeValidityBegin,
+                timeValidityEnd
+            )
         }
-
-        val issuerKey = Crypto.createEcPrivateKey(EcCurve.P256)
-        val validFrom = Clock.System.now()
-        val validUntil = validFrom + 5.days
-        issuerCert = X509Cert.Builder(
-            publicKey = issuerKey.publicKey,
-            signingKey = issuerKey,
-            signatureAlgorithm = issuerKey.curve.defaultSigningAlgorithm,
-            serialNumber = ASN1Integer(1L),
-            subject = X500Name.fromName("CN=State of Utopia"),
-            issuer = X500Name.fromName("CN=State of Utopia"),
-            validFrom = validFrom,
-            validUntil = validUntil
-        )
-            .includeSubjectKeyIdentifier()
-            .setKeyUsage(setOf(X509KeyUsage.DIGITAL_SIGNATURE))
-            .build()
-
-        // Issuer knows that it will use ECDSA with SHA-256.
-        // Public keys and cert chains will be at https://example-issuer.com/...
-        val sdJwtVcGenerator = SdJwtVcGenerator(
-            random = Random(42),
-            payload = identityAttributes,
-            issuer = Issuer("https://example-issuer.com", Algorithm.ES256, "key-1")
-        )
-
-        sdJwtVcGenerator.publicKey = JsonWebKey(credential.attestation.publicKey)
-        sdJwtVcGenerator.timeSigned = timeSigned
-        sdJwtVcGenerator.timeValidityBegin = timeValidityBegin
-        sdJwtVcGenerator.timeValidityEnd = timeValidityEnd
-
-        val sdJwt = sdJwtVcGenerator.generateSdJwt(issuerKey)
-        // could have also said
-        //
-        // sdJwt = sdJwtVcGenerator.generateSdJwt {
-        //    toBeSigned, issuer ->
-        //        // find some way to sign toBeSigned, using the key indicated in
-        //        // issuer (which also has the alg in it) and return the signature
-        // }
-        //
-        // for example:
-        //
-        // sdJwt = sdJwtVcGenerator.generateSdJwt {
-        //    toBeSigned, issuer ->
-        //       Signature.getSignerFor(issuer.alg).with(issuerKeyPair.private).sign(toBeSigned)
-        // }
-        //
-
-        credential.certify(
-            sdJwt.toString().toByteArray(),
-            timeValidityBegin,
-            timeValidityEnd)
     }
 
     @OptIn(ExperimentalEncodingApi::class)
     @Test
-    fun testPresentationVerificationEcdsa() {
+    fun testPresentationVerificationEcdsa() = runTest {
+        provisionCredential()
 
         // on the holder device, let's prepare a presentation
         // we'll start by reading back the SD-JWT issued to us for the auth key
@@ -189,17 +195,19 @@ class SdJwtVcTest {
         val nonceStr = Base64.UrlSafe.encode(nonce)
 
         // time to create the presentation (on the holder device) for the verifier:
-        val presentationString = filteredSdJwt.createPresentation(
-            credential.secureArea,
-            credential.alias,
-            null,
-            Algorithm.ES256,
-            nonceStr,
-            "https://example-verifier.com"
-        ).toString()
+        val presentation = document.withLock {
+            val presentationString = filteredSdJwt.createPresentation(
+                credential.secureArea,
+                credential.alias,
+                null,
+                Algorithm.ES256,
+                nonceStr,
+                "https://example-verifier.com"
+            ).toString()
 
-        // this would now be transmitted to the verifier, who first has to re-hydrate it into an object:
-        val presentation = SdJwtVerifiablePresentation.fromString(presentationString)
+            // this would now be transmitted to the verifier, who first has to re-hydrate it into an object:
+            SdJwtVerifiablePresentation.fromString(presentationString)
+        }
 
         // make sure most of the disclosures are gone:
         assertFailsWith<AttributeNotDisclosedException> {presentation.getAttributeValue("given_name")}

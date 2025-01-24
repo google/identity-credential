@@ -24,16 +24,18 @@ class KeyBoundSdJwtVcCredential : SecureAreaBoundCredential, SdJwtVcCredential {
      * [draft-ietf-oauth-sd-jwt-vc-03]
      * (https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/)
      */
-    override val vct: String
+    override lateinit var vct: String
+        private set
 
     /**
      * Constructs a new [KeyBoundSdJwtVcCredential].
+     *
+     * [generateKey] providing [CreateKeySettings] must be called before using this object.
      *
      * @param document the document to add the credential to.
      * @param asReplacementFor the credential this credential will replace, if not null
      * @param domain the domain of the credential
      * @param secureArea the secure area for the authentication key associated with this credential.
-     * @param createKeySettings the settings used to create new credentials.
      * @param vct the Verifiable Credential Type.
      */
     constructor(
@@ -41,26 +43,25 @@ class KeyBoundSdJwtVcCredential : SecureAreaBoundCredential, SdJwtVcCredential {
         asReplacementFor: Credential?,
         domain: String,
         secureArea: SecureArea,
-        createKeySettings: CreateKeySettings,
         vct: String,
-    ) : super(document, asReplacementFor, domain, secureArea, createKeySettings) {
+    ) : super(document, asReplacementFor, domain, secureArea) {
         this.vct = vct
-        // Only the leaf constructor should add the credential to the document.
-        if (this::class == KeyBoundSdJwtVcCredential::class) {
-            addToDocument()
-        }
     }
 
     /**
      * Constructs a Credential from serialized data.
      *
+     * [deserialize] providing serialized data must be called before using this object.
+     *
      * @param document the [Document] that the credential belongs to.
-     * @param dataItem the serialized data.
      */
     constructor(
-        document: Document,
-        dataItem: DataItem,
-    ) : super(document, dataItem) {
+        document: Document
+    ) : super(document) {
+    }
+
+    override suspend fun deserialize(dataItem: DataItem) {
+        super.deserialize(dataItem)
         vct = dataItem["vct"].asTstr
     }
 

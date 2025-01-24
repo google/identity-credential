@@ -32,7 +32,10 @@ import com.android.identity.securearea.SecureArea
 import com.android.identity.securearea.fromDataItem
 import com.android.identity.securearea.keyPurposeSet
 import com.android.identity.securearea.toDataItem
-import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.Storage
+import com.android.identity.storage.StorageTable
+import com.android.identity.storage.StorageTableSpec
+import kotlinx.io.bytestring.ByteString
 import kotlin.random.Random
 
 /**
@@ -40,7 +43,7 @@ import kotlin.random.Random
  *
  * This implementation supports all the curves and algorithms defined by [SecureArea]
  * and also supports passphrase-protected keys. Key material is stored using the
- * [StorageEngine] abstraction and passphrase-protected keys are encrypted using
+ * [Storage] abstraction and passphrase-protected keys are encrypted using
  * [AES-GCM](https://en.wikipedia.org/wiki/Galois/Counter_Mode)
  * with 256-bit keys with the key derived from the passphrase using
  * [HKDF](https://en.wikipedia.org/wiki/HKDF).
@@ -49,17 +52,23 @@ import kotlin.random.Random
  * [Bouncy Castle](https://www.bouncycastle.org/) library but this implementation
  * detail may change in the future.
  *
- * @param storageEngine the storage engine to use for storing key material.
+ * Use [SoftwareSecureArea.create] to create an instance of SoftwareSecureArea.
  */
-class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea {
-    override val identifier get() = "SoftwareSecureArea"
+class SoftwareSecureArea private constructor(private val storageTable: StorageTable) : SecureArea {
+    override val identifier get() = IDENTIFIER
 
     override val displayName get() = "Software Secure Area"
 
-    override fun createKey(
-        alias: String,
+    override suspend fun createKey(
+        alias: String?,
         createKeySettings: com.android.identity.securearea.CreateKeySettings
-    ) {
+    ): String {
+        if (alias != null) {
+            // If the key with the given alias exists, it is silently overwritten.
+            // TODO: review if this is the semantics we want
+            storageTable.delete(alias)
+        }
+
         val settings = if (createKeySettings is SoftwareCreateKeySettings) {
             createKeySettings
         } else {
@@ -100,7 +109,7 @@ class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea 
             if (settings.passphraseConstraints != null) {
                 mapBuilder.put("passphraseConstraints", settings.passphraseConstraints.toDataItem())
             }
-            storageEngine.put(PREFIX + alias, Cbor.encode(mapBuilder.end().build()))
+            return storageTable.insert(alias, ByteString(Cbor.encode(mapBuilder.end().build())))
         } catch (e: Exception) {
             // such as NoSuchAlgorithmException, CertificateException, InvalidAlgorithmParameterException, OperatorCreationException, IOException, NoSuchProviderException
             throw IllegalStateException("Unexpected exception", e)
@@ -121,15 +130,16 @@ class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea 
         )
     }
 
-    override fun deleteKey(alias: String) = storageEngine.delete(PREFIX + alias)
+    override suspend fun deleteKey(alias: String) {
+        storageTable.delete(alias)
+    }
 
     private data class KeyData(
         val keyPurposes: Set<KeyPurpose>,
         val privateKey: EcPrivateKey,
     )
 
-    private fun loadKey(
-        prefix: String,
+    private suspend fun loadKey(
         alias: String,
         keyUnlockData: KeyUnlockData?
     ): KeyData {
@@ -138,9 +148,9 @@ class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea 
             val unlockData = keyUnlockData as SoftwareKeyUnlockData
             passphrase = unlockData.passphrase
         }
-        val data = storageEngine[prefix + alias]
+        val data = storageTable.get(alias)
             ?: throw IllegalArgumentException("No key with given alias")
-        val map = Cbor.decode(data)
+        val map = Cbor.decode(data.toByteArray())
         val keyPurposes = map["keyPurposes"].asNumber.keyPurposeSet
         val passphraseRequired = map["passphraseRequired"].asBoolean
         val privateKeyCoseKey = if (passphraseRequired) {
@@ -171,34 +181,34 @@ class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea 
      * @return a [PrivateKey].
      * @throws KeyLockedException
      */
-    fun getPrivateKey(
+    suspend fun getPrivateKey(
         alias: String,
         keyUnlockData: KeyUnlockData?
-    ): EcPrivateKey = loadKey(PREFIX, alias, keyUnlockData).privateKey
+    ): EcPrivateKey = loadKey(alias, keyUnlockData).privateKey
 
-    override fun sign(
+    override suspend fun sign(
         alias: String,
         signatureAlgorithm: Algorithm,
         dataToSign: ByteArray,
         keyUnlockData: KeyUnlockData?
-    ): EcSignature = loadKey(PREFIX, alias, keyUnlockData).run {
+    ): EcSignature = loadKey(alias, keyUnlockData).run {
         require(keyPurposes.contains(KeyPurpose.SIGN)) { "Key does not have purpose SIGN" }
         Crypto.sign(privateKey, signatureAlgorithm, dataToSign)
     }
 
-    override fun keyAgreement(
+    override suspend fun keyAgreement(
         alias: String,
         otherKey: EcPublicKey,
         keyUnlockData: KeyUnlockData?
-    ): ByteArray = loadKey(PREFIX, alias, keyUnlockData).run {
+    ): ByteArray = loadKey(alias, keyUnlockData).run {
         require(keyPurposes.contains(KeyPurpose.AGREE_KEY)) { "Key does not have purpose AGREE_KEY" }
         Crypto.keyAgreement(privateKey, otherKey)
     }
 
-    override fun getKeyInfo(alias: String): SoftwareKeyInfo {
-        val data = storageEngine[PREFIX + alias]
+    override suspend fun getKeyInfo(alias: String): SoftwareKeyInfo {
+        val data = storageTable.get(alias)
             ?: throw IllegalArgumentException("No key with given alias")
-        val map = Cbor.decode(data)
+        val map = Cbor.decode(data.toByteArray())
         val keyPurposes = map["keyPurposes"].asNumber.keyPurposeSet
         val passphraseRequired = map["passphraseRequired"].asBoolean
         val publicKey = map["publicKey"].asCoseKey.ecPublicKey
@@ -214,7 +224,7 @@ class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea 
         )
     }
 
-    override fun getKeyInvalidated(alias: String): Boolean {
+    override suspend fun getKeyInvalidated(alias: String): Boolean {
         // Software keys are never invalidated.
         return false
     }
@@ -222,7 +232,21 @@ class SoftwareSecureArea(private val storageEngine: StorageEngine) : SecureArea 
     companion object {
         private const val TAG = "SoftwareSecureArea"
 
-        // Prefix for storage items.
-        private const val PREFIX = "IC_SoftwareSecureArea_key_"
+        const val IDENTIFIER = "SoftwareSecureArea"
+
+        /**
+         * Creates an instance of SoftwareSecureArea.
+         *
+         * @param storage the storage engine to use for storing key material.
+         */
+        suspend fun create(storage: Storage): SoftwareSecureArea {
+            return SoftwareSecureArea(storage.getTable(tableSpec))
+        }
+
+        private val tableSpec = StorageTableSpec(
+            name = "SoftwareSecureArea",
+            supportPartitions = false,
+            supportExpiration = false
+        )
     }
 }

@@ -17,10 +17,9 @@ actual object DeviceCheck {
         secureArea: SecureArea,
         clientId: String
     ): DeviceAttestationResult {
-        val alias = "deviceCheck_" + Random.nextBytes(9).toBase64Url()
         val keySettings = AndroidKeystoreCreateKeySettings.Builder(clientId.encodeToByteArray())
             .build()
-        secureArea.createKey(alias, keySettings)
+        val alias = secureArea.createKey(null, keySettings)
         val keyInfo = secureArea.getKeyInfo(alias)
         return DeviceAttestationResult(
             deviceAttestationId = alias,

@@ -8,7 +8,7 @@ import com.android.identity.device.DeviceAttestation
 import com.android.identity.device.DeviceAttestationIos
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.issuance.common.cache
+import com.android.identity.flow.cache
 import com.android.identity.securearea.KeyAttestation
 import com.android.identity.util.isCloudKeyAttestation
 import com.android.identity.util.validateAndroidKeyAttestation

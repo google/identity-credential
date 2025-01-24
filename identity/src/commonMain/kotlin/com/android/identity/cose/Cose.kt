@@ -177,7 +177,7 @@ object Cose {
      * @param unprotectedHeaders the unprotected headers to include.
      * @param keyUnlockData a [KeyUnlockData] for unlocking the key in the [SecureArea].
      */
-    fun coseSign1Sign(
+    suspend fun coseSign1Sign(
         secureArea: SecureArea,
         alias: String,
         message: ByteArray,

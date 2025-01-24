@@ -9,8 +9,9 @@ import com.android.identity.flow.handler.InvalidRequestException
 import com.android.identity.flow.handler.SimpleCipher
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.server.BaseHttpServlet
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.fromBase64Url
 import com.android.identity.util.toBase64Url
 import jakarta.servlet.http.HttpServletRequest
@@ -28,21 +29,26 @@ abstract class BaseServlet: BaseHttpServlet() {
 
     companion object {
         lateinit var cipher: SimpleCipher
+
+        private val rootTableSpec = StorageTableSpec(
+            name = "Openid4VciServerRootState",
+            supportExpiration = false,
+            supportPartitions = false
+        )
     }
 
     override fun initializeEnvironment(env: FlowEnvironment): FlowNotifications? {
-        val storage = env.getInterface(Storage::class)!!
         val encryptionKey = runBlocking {
-            val key = storage.get("RootState", "", "issuanceStateEncryptionKey")
+            val storage = env.getTable(rootTableSpec)
+            val key = storage.get("issuanceStateEncryptionKey")
             if (key != null) {
                 key.toByteArray()
             } else {
                 val newKey = Random.nextBytes(16)
                 storage.insert(
-                    "RootState",
-                    "",
-                    ByteString(newKey),
-                    "issuanceStateEncryptionKey")
+                    data = ByteString(newKey),
+                    key = "issuanceStateEncryptionKey"
+                )
                 newKey
             }
         }
