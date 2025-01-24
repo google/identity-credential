@@ -15,6 +15,7 @@ data class DocumentInfoScreenState(
     val lastTimeUsedDate: String = "",
     val isSelfSigned: Boolean = false,
     val authKeys: List<KeyInformation> = emptyList(),
+    val daKeys: List<DaKeyInformation> = emptyList(),
     val isDeletingPromptShown: Boolean = false,
     val isDeleted: Boolean = false
 ) {
@@ -30,6 +31,17 @@ data class DocumentInfoScreenState(
         val keyPurposes: KeyPurpose,
         val ecCurve: EcCurve,
         val isHardwareBacked: Boolean,
+        val secureAreaDisplayName: String
+    )
+
+    @Immutable
+    data class DaKeyInformation(
+        val counter: Int,
+        val validFrom: String,
+        val validUntil: String,
+        val domain: String,
+        val issuerDataBytesCount: Int,
+        val usagesCount: Int,
         val secureAreaDisplayName: String
     )
 }

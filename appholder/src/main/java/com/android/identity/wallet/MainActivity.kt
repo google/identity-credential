@@ -13,12 +13,15 @@ import androidx.navigation.findNavController
 import androidx.navigation.ui.NavigationUI
 import androidx.navigation.ui.NavigationUI.setupActionBarWithNavController
 import androidx.navigation.ui.setupWithNavController
+import com.android.identity.android.direct_access.DirectAccess
 import com.android.identity.mdoc.origininfo.OriginInfo
 import com.android.identity.mdoc.origininfo.OriginInfoDomain
+import com.android.identity.util.AndroidInitializer
 import com.android.identity.util.Logger
 import com.android.identity.wallet.databinding.ActivityMainBinding
 import com.android.identity.wallet.util.PreferencesHelper
 import com.android.identity.wallet.document.DocumentManager
+import com.android.identity.wallet.dynamicregistration.AidRegistrationUtil
 import com.android.identity.wallet.util.log
 import com.android.identity.wallet.util.logError
 import com.android.identity.wallet.util.logInfo
@@ -39,6 +42,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AndroidInitializer.initialize(applicationContext)
+        DirectAccess.warmupTransport()
         val color = SurfaceColors.SURFACE_2.getColor(this)
         window.statusBarColor = color
         window.navigationBarColor = color
@@ -49,6 +54,8 @@ class MainActivity : AppCompatActivity() {
         setupNfc()
         onNewIntent(intent)
         Logger.isDebugEnabled = PreferencesHelper.isDebugLoggingEnabled()
+        // route aids to host by default
+        AidRegistrationUtil.routeAidsToHost(this)
     }
 
     private fun setupNfc() {

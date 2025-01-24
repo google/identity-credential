@@ -20,4 +20,5 @@ data class AddSelfSignedScreenState(
     val validityInDays: Int = 30,
     val minValidityInDays: Int = 10,
     val secureAreaSupportState: SecureAreaSupportState? = null,
+    val provisionDirectAccessCredential: Boolean = false,
 ) : Parcelable

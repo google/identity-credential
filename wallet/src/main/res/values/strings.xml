@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">Wallet</string>
     <string name="engagement_aid_group_desc">mDL AID Group</string>
+    <string name="off_host_engagement_aid_group_desc">mDL AID Off Host Group</string>
     <string name="nfc_engagement_service_desc">@string/app_name</string>
     <string name="app_name_presentation">Wallet Presentation</string>
 

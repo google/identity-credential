@@ -12,7 +12,8 @@ data class DocumentInformation(
     val documentColor: Int,
     val maxUsagesPerKey: Int,
     val lastTimeUsed: String,
-    val authKeys: List<KeyData>
+    val authKeys: List<KeyData>,
+    val daCreds: List<DirectAccessCredInfo> // used in document info screen to show da cred
 ) {
 
     data class KeyData(
@@ -25,6 +26,17 @@ data class DocumentInformation(
         val keyPurposes: KeyPurpose,
         val ecCurve: EcCurve,
         val isHardwareBacked: Boolean,
+        val secureAreaDisplayName: String
+    )
+
+    // maps to DocumentInfoScreenState.DaKeyInformation
+    data class DirectAccessCredInfo(
+        val counter: Int,
+        val validFrom: String,
+        val validUntil: String,
+        val domain: String,
+        val issuerDataBytesCount: Int,
+        val usagesCount: Int,
         val secureAreaDisplayName: String
     )
 }

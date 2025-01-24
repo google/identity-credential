@@ -189,7 +189,7 @@ class TransferManager private constructor(private val context: Context) {
             credentialToUse = credential
         } else {
             credentialToUse = document.findCredential(
-                ProvisioningUtil.CREDENTIAL_DOMAIN,
+                ProvisioningUtil.MDOC_CREDENTIAL_DOMAIN,
                 Clock.System.now()
             ) as MdocCredential?
                 ?: throw IllegalStateException("No credential available")

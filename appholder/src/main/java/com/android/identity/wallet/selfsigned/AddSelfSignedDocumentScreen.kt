@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.android.identity.wallet.HolderApp
 import com.android.identity.wallet.R
 import com.android.identity.wallet.composables.CounterInput
 import com.android.identity.wallet.composables.DropDownIndicator
@@ -75,7 +78,8 @@ fun AddSelfSignedDocumentScreen(
         onMaxUseOfMsoChanged = viewModel::updateMaxUseOfMso,
         onValidityInDaysChanged = viewModel::updateValidityInDays,
         onMinValidityInDaysChanged = viewModel::updateMinValidityInDays,
-        onNext = onNext
+        onDirectAccessSelectionChanged = viewModel::updateDirectAccessSelected,
+        onNext = onNext,
     )
 }
 
@@ -93,10 +97,12 @@ private fun AddSelfSignedDocumentScreenContent(
     onMaxUseOfMsoChanged: (newValue: Int) -> Unit,
     onValidityInDaysChanged: (newValue: Int) -> Unit,
     onMinValidityInDaysChanged: (newValue: Int) -> Unit,
-    onNext: () -> Unit
+    onDirectAccessSelectionChanged: (newValue: Boolean) -> Unit,
+    onNext: () -> Unit,
 ) {
     Scaffold(modifier = modifier) { paddingValues ->
         val scrollState = rememberScrollState()
+        var directAccessRequested by remember { mutableStateOf(false) }
         Column(
             modifier = Modifier
                 .padding(paddingValues)
@@ -112,6 +118,26 @@ private fun AddSelfSignedDocumentScreenContent(
                 currentDocumentType = screenState.documentType,
                 onDocumentTypeSelected = onDocumentTypeChanged
             )
+            if (HolderApp.isDirectAccessSupported) {
+                Row(modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                ) {
+                    Checkbox(
+                        checked = directAccessRequested,
+                        onCheckedChange = {
+                            onDirectAccessSelectionChanged(it)
+                            directAccessRequested = it
+                        }
+                    )
+                    Text(
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                        text = "I would like to present this document when my phone is off.",
+                        fontSize = 15.sp,
+                    )
+                }
+            }
             CardArtChooser(
                 modifier = Modifier
                     .fillMaxWidth()

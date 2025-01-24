@@ -84,4 +84,10 @@ class AddSelfSignedViewModel(
             it.copy(maxUseOfMso = newValue)
         }
     }
+
+    fun updateDirectAccessSelected(newValue: Boolean) {
+        savedStateHandle.updateState<AddSelfSignedScreenState> {
+            it.copy(provisionDirectAccessCredential = newValue)
+        }
+    }
 }

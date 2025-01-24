@@ -55,4 +55,23 @@ enum class CredentialFormat {
      * (https://datatracker.ietf.org/doc/draft-ietf-oauth-selective-disclosure-jwt/).
      */
     SD_JWT_VC,
+
+    /**
+     * This CredentialFormat is similar to [MDOC_MSO], though it has additional fields in the
+     * StaticAuthData, which contains CBOR conforming to the following CDDL:
+     * ```
+     * StaticAuthData = {
+     *    "docType": tstr,
+     *    "issuerNameSpaces": IssuerNameSpaces,
+     *    "issuerAuth" : IssuerAuth,
+     *    "readerAccess" : ReaderAccess  // todo update applet for name change to "authorizedReaderRoots"
+     * }
+     *
+     * IssuerNameSpaces = DigestIdMapping as defined above in [MDOC_MSO]
+     * IssuerAuth as defined above in [MDOC_MSO]
+     *
+     * ReaderAccess = [ * COSE_Key ]
+     * ```
+     */
+    DirectAccess,
 }

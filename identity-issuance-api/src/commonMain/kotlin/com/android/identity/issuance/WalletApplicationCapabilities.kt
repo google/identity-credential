@@ -17,6 +17,7 @@ data class WalletApplicationCapabilities(
     val androidKeystoreAttestKeyAvailable: Boolean,
     val androidKeystoreStrongBoxAvailable: Boolean,
     val androidIsEmulator: Boolean,
+    val directAccessSupported: Boolean,
 ) {
     companion object
 }

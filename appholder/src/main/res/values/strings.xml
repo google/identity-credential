@@ -9,6 +9,7 @@
     <string name="bt_approve">Approve</string>
     <string name="nfc_engagement_service_desc">@string/app_name</string>
     <string name="nfc_data_transfer_service_desc">mDL NFC Data Transfer</string>
+    <string name="off_host_engagement_aid_group_desc">mDL AID Off Host Group</string>
     <string name="engagement_aid_group_desc">mDL AID Group</string>
     <string name="bt_add_document">Add Document</string>
     <string name="bt_add_self_signed_document">Add self-signed document</string>
@@ -113,6 +114,9 @@
     <string name="bt_close_connection">Close Connection</string>
     <string name="txt_document_type">Document type</string>
     <string name="txt_document_name">Document name</string>
+    <string name="txt_cred_type">Credential type</string>
+    <string name="txt_cred_mdoc">Mdoc Credential</string>
+    <string name="txt_cred_da">Direct Access Credential</string>
     <string name="txt_storage_implementation">Storage implementation</string>
     <string name="txt_keystore_implementation">Secure Area</string>
     <string name="txt_user_authentication">Use user authentication</string>

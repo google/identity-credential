@@ -307,7 +307,7 @@ class TransferManager private constructor(private val context: Context) {
                         readerCaPrivateKey
                     )
                 readerCertificateChain = X509CertChain(
-                    listOf(X509Cert(readerCertificate.encoded))
+                    listOf(X509Cert(readerCertificate.encoded), readerCaCert)
                 )
 
             }

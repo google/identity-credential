@@ -140,21 +140,34 @@ private fun DocumentInfoScreenContent(
                                 )
                             }
                         }
-                        val pagerState = rememberPagerState(pageCount = { screenState.authKeys.size })
+                        val pagerState = rememberPagerState(pageCount = { screenState.authKeys.size + screenState.daKeys.size })
                         HorizontalPager(
                             modifier = Modifier
                                 .fillMaxWidth(),
                             state = pagerState,
                         ) { page ->
-                            val key = screenState.authKeys[page]
-                            AuthenticationKeyInfo(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                authKeyInfo = key
-                            )
+                            if (page < screenState.authKeys.size) {
+                                val key = screenState.authKeys[page]
+                                AuthenticationKeyInfo(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                                    authKeyInfo = key
+                                )
+                            } else {
+                                val key = screenState.daKeys[page - screenState.authKeys.size]
+                                DaAuthenticationKeyInfo(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                                    authKeyInfo = key
+                                )
+                            }
+
                         }
                         PagerIndicators(
                             modifier = Modifier
@@ -162,7 +175,7 @@ private fun DocumentInfoScreenContent(
                                 .fillMaxWidth()
                                 .align(CenterHorizontally),
                             pagerState = pagerState,
-                            itemsCount = screenState.authKeys.size,
+                            itemsCount = screenState.authKeys.size + screenState.daKeys.size,
                         )
                         Divider(modifier = Modifier.padding(top = 12.dp))
                         Row(
@@ -305,6 +318,10 @@ private fun AuthenticationKeyInfo(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             LabeledValue(
+                label = stringResource(id = R.string.txt_cred_type),
+                value = stringResource(id = R.string.txt_cred_mdoc)
+            )
+            LabeledValue(
                 label = stringResource(id = R.string.txt_keystore_implementation),
                 value = authKeyInfo.secureAreaDisplayName
             )
@@ -342,6 +359,68 @@ private fun AuthenticationKeyInfo(
             LabeledValue(
                 label = stringResource(id = R.string.document_info_ec_curve),
                 value = authKeyInfo.ecCurve.toString()
+            )
+        }
+    }
+}
+
+@Composable
+private fun DaAuthenticationKeyInfo(
+    modifier: Modifier = Modifier,
+    authKeyInfo: DocumentInfoScreenState.DaKeyInformation
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            modifier = Modifier
+                .size(48.dp)
+                .padding(horizontal = 8.dp),
+            imageVector = Icons.Default.Key,
+            contentDescription = "${authKeyInfo.counter}",
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = .5f)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LabeledValue(
+                label = stringResource(id = R.string.txt_cred_type),
+                value = stringResource(id = R.string.txt_cred_da)
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.txt_keystore_implementation),
+                value = authKeyInfo.secureAreaDisplayName
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.document_info_counter),
+                value = "${authKeyInfo.counter}"
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.document_info_domain),
+                value = authKeyInfo.domain
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.document_info_valid_from),
+                value = authKeyInfo.validFrom
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.document_info_valid_until),
+                value = authKeyInfo.validUntil
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.document_info_issuer_data),
+                value = stringResource(
+                    id = R.string.document_info_issuer_data_bytes,
+                    authKeyInfo.issuerDataBytesCount
+                )
+            )
+            LabeledValue(
+                label = stringResource(id = R.string.document_info_usage_count),
+                value = "${authKeyInfo.usagesCount}"
             )
         }
     }

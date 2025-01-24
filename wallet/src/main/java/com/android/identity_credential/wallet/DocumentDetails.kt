@@ -1,8 +1,10 @@
 package com.android.identity_credential.wallet
 
 import android.content.Context
+import com.android.identity.android.direct_access.DirectAccessCredential
 import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.DiagnosticOption
+import com.android.identity.credential.Credential
 import com.android.identity.document.Document
 import com.android.identity.documenttype.DocumentAttribute
 import com.android.identity.documenttype.DocumentTypeRepository
@@ -160,6 +162,9 @@ fun Document.renderDocumentDetails(
         is KeylessSdJwtVcCredential -> {
             renderDocumentDetailsForSdJwt(documentTypeRepository, credential)
         }
+        is DirectAccessCredential -> {
+            return renderDocumentDetailsForMdoc(context, documentTypeRepository, credential)
+        }
         else -> {
             return DocumentDetails(mapOf())
         }
@@ -169,9 +174,11 @@ fun Document.renderDocumentDetails(
 private fun Document.renderDocumentDetailsForMdoc(
     context: Context,
     documentTypeRepository: DocumentTypeRepository,
-    credential: MdocCredential
+    credential: Credential
 ): DocumentDetails {
 
+    assert(((credential is MdocCredential) or (credential is DirectAccessCredential))
+    ) { "Credential must be either MdocCredential or DirectAccessCredential" }
     val documentData = StaticAuthDataParser(credential.issuerProvidedData).parse()
     val issuerAuthCoseSign1 = Cbor.decode(documentData.issuerAuth).asCoseSign1
     val encodedMsoBytes = Cbor.decode(issuerAuthCoseSign1.payload!!)

@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.mutableStateListOf
 import androidx.fragment.app.FragmentActivity
+import com.android.identity.android.direct_access.DirectAccess
+import com.android.identity.android.direct_access.DirectAccessCredential
 import com.android.identity.securearea.SecureArea
 import com.android.identity.android.securearea.AndroidKeystoreCreateKeySettings
 import com.android.identity.android.securearea.AndroidKeystoreKeyInfo
@@ -35,6 +37,8 @@ import com.android.identity.issuance.DocumentExtensions.refreshState
 import com.android.identity.issuance.DocumentExtensions.state
 import com.android.identity.issuance.CredentialFormat
 import com.android.identity.issuance.CredentialRequest
+import com.android.identity.issuance.DocumentExtensions.documentSlot
+import com.android.identity.issuance.DocumentExtensions.hasDirectAccessCredentials
 import com.android.identity.issuance.DocumentExtensions.issuingAuthorityConfiguration
 import com.android.identity.issuance.IssuingAuthority
 import com.android.identity.issuance.IssuingAuthorityException
@@ -166,6 +170,9 @@ class DocumentModel(
             Logger.w(TAG, "No document with id ${documentInfo.documentId}")
             return
         }
+        if (document.hasDirectAccessCredentials) {
+            DirectAccess.clearDocumentSlot(document.documentSlot)
+        }
         documentStore.deleteDocument(document.name)
     }
 
@@ -258,6 +265,9 @@ class DocumentModel(
                 }
                 is KeylessSdJwtVcCredential -> {
                     keyInfos.add(createCardInfoForSdJwtVcCredential(credential))
+                }
+                is DirectAccessCredential -> {
+                    keyInfos.add(createCardInfoForMdocCredential(credential))
                 }
                 else -> {
                     Logger.w(TAG, "No CardInfo support for ${credential::class}")
@@ -408,7 +418,9 @@ class DocumentModel(
         }
     }
 
-    private fun createCardInfoForMdocCredential(mdocCredential: MdocCredential): CredentialInfo {
+    private fun createCardInfoForMdocCredential(mdocCredential: Credential): CredentialInfo {
+        assert(((mdocCredential is MdocCredential) or (mdocCredential is DirectAccessCredential))
+        ) { "Credential must be either MdocCredential or DirectAccessCredential" }
 
         val credentialData = StaticAuthDataParser(mdocCredential.issuerProvidedData).parse()
         val issuerAuthCoseSign1 = Cbor.decode(credentialData.issuerAuth).asCoseSign1
@@ -422,7 +434,9 @@ class DocumentModel(
         kvPairs.put("MSO Version", mso.version)
         kvPairs.put("Issuer Data Digest Algorithm", mso.digestAlgorithm)
 
-        addSecureAreaBoundCredentialInfo(mdocCredential, kvPairs)
+        if (mdocCredential is MdocCredential) {
+            addSecureAreaBoundCredentialInfo(mdocCredential, kvPairs)
+        }
 
         kvPairs.put("Issuer Provided Data", "${mdocCredential.issuerProvidedData.size} bytes")
 
@@ -698,6 +712,9 @@ class DocumentModel(
                     R.string.notifications_document_deleted_by_issuer
                 )
             )
+            if (document.hasDirectAccessCredentials) {
+                DirectAccess.clearDocumentSlot(document.documentSlot)
+            }
             documentStore.deleteDocument(document.name)
             return
         }
@@ -716,6 +733,9 @@ class DocumentModel(
 
             // Notify the user that the document is either ready or an update has been downloaded.
             if (document.numDocumentConfigurationsDownloaded == 0L) {
+                if (document.documentConfiguration.directAccessConfiguration != null) {
+                    document.documentSlot = DirectAccess.allocateDocumentSlot()
+                }
                 walletApplication.postNotificationForDocument(
                     document,
                     walletApplication.applicationContext.getString(
@@ -758,6 +778,23 @@ class DocumentModel(
                 }
             }
 
+            if (docConf.directAccessConfiguration != null) {
+                refreshCredentials(
+                    issuer,
+                    document,
+                    WalletApplication.CREDENTIAL_DOMAIN_DIRECT_ACCESS,
+                    CredentialFormat.DirectAccess
+                ) { credentialToReplace, credentialDomain, secureArea, createKeySettings ->
+                    DirectAccessCredential(
+                        document,
+                        credentialToReplace,
+                        credentialDomain,
+                        docConf.directAccessConfiguration!!.docType,
+                        document.documentSlot
+                    )
+                }
+            }
+
             val configuration = docConf.sdJwtVcDocumentConfiguration
             if (configuration != null && configuration.keyBound != false) {
                 refreshCredentials(
@@ -782,6 +819,7 @@ class DocumentModel(
         document.refreshState(walletServerProvider)
 
         // ... if so, download them.
+        var lastCertified: DirectAccessCredential? = null
         var numCredentialsRefreshed = 0
         if (document.state.numAvailableCredentials > 0) {
             for (credentialData in issuer.getCredentials(document.documentIdentifier)) {
@@ -795,7 +833,9 @@ class DocumentModel(
                     )
                 } else {
                     document.pendingCredentials.find {
-                        (it as SecureAreaBoundCredential).attestation
+                        if (it is DirectAccessCredential) it.attestation
+                            .publicKey.equals(credentialData.secureAreaBoundKey)
+                        else (it as SecureAreaBoundCredential).attestation
                             .publicKey.equals(credentialData.secureAreaBoundKey)
                     }
                 }
@@ -809,7 +849,11 @@ class DocumentModel(
                     credentialData.validUntil
                 )
                 numCredentialsRefreshed += 1
+                if (pendingCredential is DirectAccessCredential) {
+                    lastCertified = pendingCredential
+                }
             }
+            lastCertified?.setAsActiveCredential()
             document.refreshState(walletServerProvider)
         }
     }
@@ -888,7 +932,11 @@ class DocumentModel(
             for (pendingCredential in document.pendingCredentials) {
                 credentialRequests.add(
                     CredentialRequest(
-                        (pendingCredential as SecureAreaBoundCredential).attestation
+                        if (pendingCredential is DirectAccessCredential) {
+                            pendingCredential.attestation
+                        } else {
+                            (pendingCredential as SecureAreaBoundCredential).attestation
+                        }
                     )
                 )
             }

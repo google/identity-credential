@@ -1,6 +1,7 @@
 package com.android.identity.issuance
 
 import com.android.identity.cbor.annotation.CborSerializable
+import com.android.identity.issuance.evidence.DirectAccessDocumentConfiguration
 
 /**
  * The configuration data for a specific document.
@@ -47,6 +48,13 @@ data class DocumentConfiguration(
      * object contains more information and data related to this.
      */
     val sdJwtVcDocumentConfiguration: SdJwtVcDocumentConfiguration?,
-) {
+
+    /**
+     * If not null, credentials of type [DirectAccessCredential] are available and this
+     * object contains more information and data related to this.
+     */
+    val directAccessConfiguration: DirectAccessDocumentConfiguration?,
+
+    ) {
     companion object
 }

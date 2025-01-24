@@ -63,6 +63,7 @@ class WalletServerState(
                     cardArt = art.toByteArray(),
                     requireUserAuthenticationToViewDocument = true,
                     mdocConfiguration = null,
+                    directAccessConfiguration = null,
                     sdJwtVcDocumentConfiguration = null
                 ),
                 numberOfCredentialsToRequest = 3,

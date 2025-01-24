@@ -308,7 +308,7 @@ open class Credential {
      * @param validFrom the point in time before which the data is not valid.
      * @param validUntil the point in time after which the data is not valid.
      */
-    fun certify(
+    open fun certify(
         issuerProvidedAuthenticationData: ByteArray,
         validFrom: Instant,
         validUntil: Instant
