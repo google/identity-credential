@@ -1,7 +1,7 @@
 package com.android.identity.server.openid4vci
 
 import com.android.identity.flow.handler.InvalidRequestException
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import kotlinx.coroutines.runBlocking
@@ -19,9 +19,9 @@ class FinishAuthorizationServlet : BaseServlet() {
         val issuerState = req.getParameter("issuer_state")
             ?: throw InvalidRequestException("missing parameter 'issuer_state'")
         val id = codeToId(OpaqueIdType.ISSUER_STATE, issuerState)
-        val storage = environment.getInterface(Storage::class)!!
         runBlocking {
-            val state = IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            val state = IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
             val redirectUri = state.redirectUri ?: throw IllegalStateException("No redirect url")
             if (!redirectUri.startsWith("http://") && !redirectUri.startsWith("https://")) {
                 resp.writer.write(

@@ -21,7 +21,8 @@ import com.android.identity.crypto.EcCurve
 import com.android.identity.securearea.software.SoftwareCreateKeySettings
 import com.android.identity.securearea.software.SoftwareKeyUnlockData
 import com.android.identity.securearea.software.SoftwareSecureArea
-import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.ephemeral.EphemeralStorage
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -34,9 +35,9 @@ import kotlin.test.fail
 
 class SoftwareSecureAreaTest {
     @Test
-    fun testEcKeyDeletion() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeyDeletion() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
 
         // First create the key...
         ks.createKey(
@@ -63,9 +64,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeySigning() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeySigning() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         ks.createKey(
             "testKey",
             CreateKeySettings(setOf(KeyPurpose.SIGN), EcCurve.P256)
@@ -93,9 +94,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeyCreate() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeyCreate() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         ks.createKey(
             "testKey",
             CreateKeySettings(setOf(KeyPurpose.SIGN), EcCurve.P256)
@@ -109,9 +110,9 @@ class SoftwareSecureAreaTest {
     }
     
     @Test
-    fun testEcKeyWithGenericCreateKeySettings() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeyWithGenericCreateKeySettings() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val challenge = byteArrayOf(1, 2, 3)
         ks.createKey("testKey", CreateKeySettings(setOf(KeyPurpose.SIGN), EcCurve.P256))
         val keyInfo = ks.getKeyInfo("testKey")
@@ -127,9 +128,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeySigningWithKeyWithoutCorrectPurpose() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeySigningWithKeyWithoutCorrectPurpose() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         ks.createKey(
             "testKey",
             SoftwareCreateKeySettings.Builder()
@@ -148,9 +149,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcdh() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcdh() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val otherKey = Crypto.createEcPrivateKey(EcCurve.P256)
         ks.createKey(
             "testKey",
@@ -185,9 +186,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcdhAndSigning() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcdhAndSigning() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val otherKey = Crypto.createEcPrivateKey(EcCurve.P256)
         ks.createKey(
             "testKey",
@@ -237,9 +238,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcdhWithoutCorrectPurpose() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcdhWithoutCorrectPurpose() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val otherKey = Crypto.createEcPrivateKey(EcCurve.P256)
         ks.createKey(
             "testKey",
@@ -261,9 +262,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeySigningWithLockedKey() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeySigningWithLockedKey() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val passphrase = "verySekrit"
         val passphraseConstraints = PassphraseConstraints.PIN_SIX_DIGITS
         ks.createKey(
@@ -329,9 +330,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeyCreationOverridesExistingAlias() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeyCreationOverridesExistingAlias() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         ks.createKey(
             "testKey",
             CreateKeySettings(setOf(KeyPurpose.SIGN), EcCurve.P256)
@@ -366,9 +367,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeySigningAllCurves() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeySigningAllCurves() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val curvesSupportingSigning = setOf(
             EcCurve.P256,
             EcCurve.P384,
@@ -433,9 +434,9 @@ class SoftwareSecureAreaTest {
     }
 
     @Test
-    fun testEcKeyEcdhAllCurves() {
-        val storage = EphemeralStorageEngine()
-        val ks = SoftwareSecureArea(storage)
+    fun testEcKeyEcdhAllCurves() = runTest {
+        val storage = EphemeralStorage()
+        val ks = SoftwareSecureArea.create(storage)
         val curvesSupportingKeyAgreement = arrayOf(
             EcCurve.P256,
             EcCurve.P384,

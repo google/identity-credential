@@ -8,7 +8,7 @@ import com.android.identity.crypto.Crypto
 import com.android.identity.crypto.javaPrivateKey
 import com.android.identity.crypto.javaPublicKey
 import com.android.identity.document.NameSpacedData
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.mdoc.response.DeviceResponseParser
 import com.android.identity.util.fromBase64Url
 import com.nimbusds.jose.crypto.ECDHDecrypter
@@ -29,9 +29,9 @@ class Openid4VpResponseServlet: BaseServlet() {
     override fun doPost(req: HttpServletRequest, resp: HttpServletResponse) {
         val stateCode = req.getParameter("state")!!
         val id = codeToId(OpaqueIdType.OPENID4VP_STATE, stateCode)
-        val storage = environment.getInterface(Storage::class)!!
         val state = runBlocking {
-            IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
         }
 
         val encryptedJWT = EncryptedJWT.parse(req.getParameter("response")!!)
@@ -83,7 +83,8 @@ class Openid4VpResponseServlet: BaseServlet() {
 
         state.credentialData = data.build()
         runBlocking {
-            storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            storage.update(id, ByteString(state.toCbor()))
         }
 
         val presentation = idToCode(OpaqueIdType.OPENID4VP_PRESENTATION, id, 5.minutes)

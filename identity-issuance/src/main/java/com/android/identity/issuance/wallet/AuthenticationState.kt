@@ -7,14 +7,15 @@ import com.android.identity.device.DeviceAttestationValidationData
 import com.android.identity.flow.annotation.FlowMethod
 import com.android.identity.flow.annotation.FlowState
 import com.android.identity.flow.server.Configuration
-import com.android.identity.flow.server.Storage
 import com.android.identity.flow.server.FlowEnvironment
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.AuthenticationFlow
 import com.android.identity.issuance.ClientAuthentication
 import com.android.identity.issuance.ClientChallenge
 import com.android.identity.issuance.WalletServerCapabilities
 import com.android.identity.issuance.WalletServerSettings
 import com.android.identity.issuance.toCbor
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.toBase64Url
 import kotlinx.datetime.Clock
 import kotlinx.io.bytestring.ByteString
@@ -28,14 +29,26 @@ class AuthenticationState(
     var deviceAttestation: DeviceAttestation? = null,
     var authenticated: Boolean = false
 ) {
-    companion object
+    companion object {
+        val clientTableSpec = StorageTableSpec(
+            name = "Clients",
+            supportPartitions = false,
+            supportExpiration = false
+        )
+
+        val walletAppCapabilitiesTableSpec = StorageTableSpec(
+            name = "WalletAppCapabilities",
+            supportPartitions = false,
+            supportExpiration = false
+        )
+    }
 
     @FlowMethod
     suspend fun requestChallenge(env: FlowEnvironment, clientId: String): ClientChallenge {
         check(this.clientId.isEmpty())
         check(nonce != null)
-        val storage = env.getInterface(Storage::class)!!
-        val clientData = storage.get("Clients", "", clientId)
+        val clientTable = env.getTable(clientTableSpec)
+        val clientData = clientTable.get(clientId)
         if (clientData != null) {
             this.deviceAttestation =
                 ClientRecord.fromCbor(clientData.toByteArray()).deviceAttestation
@@ -54,7 +67,7 @@ class AuthenticationState(
     @FlowMethod
     suspend fun authenticate(env: FlowEnvironment, auth: ClientAuthentication): WalletServerCapabilities {
         val settings = WalletServerSettings(env.getInterface(Configuration::class)!!)
-        val storage = env.getInterface(Storage::class)!!
+        val clientTable = env.getTable(clientTableSpec)
 
         val attestation = auth.attestation
         if (attestation != null) {
@@ -71,7 +84,7 @@ class AuthenticationState(
             ))
             val clientData = ByteString(ClientRecord(attestation).toCbor())
             this.deviceAttestation = attestation
-            storage.insert("Clients", "", clientData, key = clientId)
+            clientTable.insert(data = clientData, key = clientId)
         }
 
         this.deviceAttestation!!.validateAssertion(auth.assertion)
@@ -80,23 +93,16 @@ class AuthenticationState(
             throw IllegalArgumentException("nonce mismatch")
         }
         authenticated = true
-        if (storage.get(
-            "WalletApplicationCapabilities",
-            "",
-            clientId,
-        ) == null) {
-            storage.insert(
-                "WalletApplicationCapabilities",
-                "",
-                ByteString(auth.walletApplicationCapabilities.toCbor()),
-                clientId
+        val walletAppCapabilitiesTable = env.getTable(walletAppCapabilitiesTableSpec)
+        if (walletAppCapabilitiesTable.get(clientId) == null) {
+            walletAppCapabilitiesTable.insert(
+                key = clientId,
+                data = ByteString(auth.walletApplicationCapabilities.toCbor()),
             )
         } else {
-            storage.update(
-                "WalletApplicationCapabilities",
-                "",
-                clientId,
-                ByteString(auth.walletApplicationCapabilities.toCbor())
+            walletAppCapabilitiesTable.update(
+                key = clientId,
+                data = ByteString(auth.walletApplicationCapabilities.toCbor())
             )
         }
         return WalletServerCapabilities(

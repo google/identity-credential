@@ -53,7 +53,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.android.identity.android.securearea.AndroidKeystoreCreateKeySettings
+import com.android.identity.android.securearea.AndroidKeystoreSecureArea
 import com.android.identity.cbor.Bstr
 import com.android.identity.cbor.Cbor
 import com.android.identity.cbor.DataItem
@@ -74,6 +76,7 @@ import com.android.identity.mdoc.mso.StaticAuthDataGenerator
 import com.android.identity.mdoc.util.MdocUtil
 import com.android.identity.preconsent_mdl.ui.theme.IdentityCredentialTheme
 import com.android.identity.util.Logger
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import java.io.ByteArrayOutputStream
@@ -95,7 +98,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var transferHelper: TransferHelper
 
-    private fun provisionDocuments() {
+    private suspend fun provisionDocuments() {
         if (transferHelper.documentStore.lookupDocument(CREDENTIAL_ID) == null) {
             provisionDocument()
         } else {
@@ -103,7 +106,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun provisionDocument() {
+    private suspend fun provisionDocument() {
         val document = transferHelper.documentStore.createDocument(CREDENTIAL_ID)
         transferHelper.documentStore.addDocument(document)
 
@@ -145,16 +148,17 @@ class MainActivity : ComponentActivity() {
                 document,
                 null,
                 AUTH_KEY_DOMAIN,
-                transferHelper.androidKeystoreSecureArea,
-                AndroidKeystoreCreateKeySettings.Builder("".toByteArray()).build(),
+                transferHelper.secureAreaRepository.getImplementation(AndroidKeystoreSecureArea.IDENTIFIER)!!,
                 MDL_DOCTYPE
-            )
+            ).apply {
+                generateKey(AndroidKeystoreCreateKeySettings.Builder("".toByteArray()).build())
+            }
 
             // Generate an MSO and issuer-signed data for this credentials.
             val msoGenerator = MobileSecurityObjectGenerator(
                 "SHA-256",
                 MDL_DOCTYPE,
-                pendingCredential.attestation.publicKey
+                pendingCredential.getAttestation().publicKey
             )
             msoGenerator.setValidityInfo(
                 timeSigned,
@@ -268,7 +272,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         transferHelper = TransferHelper.getInstance(applicationContext)
-        provisionDocuments()
+
+        lifecycleScope.launch {
+            provisionDocuments()
+        }
 
         val permissionsNeeded = appPermissions.filter { permission ->
             ContextCompat.checkSelfPermission(

@@ -49,7 +49,6 @@ import com.android.identity.issuance.DocumentExtensions.documentConfiguration
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.response.DeviceResponseGenerator
 import com.android.identity.sdjwt.SdJwtVerifiableCredential
-import com.android.identity.sdjwt.credential.KeyBoundSdJwtVcCredential
 import com.android.identity.trustmanagement.TrustPoint
 import com.android.identity.util.Constants
 import com.android.identity.util.Logger
@@ -75,7 +74,6 @@ import com.nimbusds.jose.proc.JWSKeySelector
 import com.nimbusds.jose.proc.SecurityContext
 import com.nimbusds.jose.shaded.gson.Gson
 import com.nimbusds.jose.util.Base64URL
-import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.EncryptedJWT
 import com.nimbusds.jwt.JWT
 import com.nimbusds.jwt.JWTClaimsSet
@@ -118,7 +116,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import java.security.cert.X509Certificate
 import java.util.UUID
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -313,13 +310,12 @@ class OpenID4VPPresentationActivity : FragmentActivity() {
 
     }
 
-    private fun firstMatchingDocument(
+    private suspend fun firstMatchingDocument(
         credentialFormat: CredentialFormat,
         docType: String
     ): Document? {
         val settingsModel = walletApp.settingsModel
         val documentStore = walletApp.documentStore
-
         // prefer the credential which is on-screen if possible
         val credentialIdFromPager: String? = settingsModel.focusedCardId.value
         if (credentialIdFromPager != null
@@ -337,7 +333,7 @@ class OpenID4VPPresentationActivity : FragmentActivity() {
         return docId?.let { documentStore.lookupDocument(it) }
     }
 
-    private fun canDocumentSatisfyRequest(
+    private suspend fun canDocumentSatisfyRequest(
         credentialId: String,
         credentialFormat: CredentialFormat,
         docType: String
@@ -505,55 +501,75 @@ class OpenID4VPPresentationActivity : FragmentActivity() {
             }
         }
 
+        // TODO: is this line needed?
         val documentRequest = formatAsDocumentRequest(inputDescriptorObj)
-        val document = firstMatchingDocument(credentialFormat, docType)
-            ?: run { throw NoMatchingDocumentException("No matching credentials in wallet for " +
-                    "docType $docType and credentialFormat $credentialFormat") }
 
-        // begin collecting and creating data needed for the response
         val secureRandom = Random.Default
         val bytes = ByteArray(16)
         secureRandom.nextBytes(bytes)
         val generatedNonce = Base64.UrlSafe.encode(bytes)
-        val sessionTranscript = createSessionTranscript(
-            clientId = authorizationRequest.clientId,
-            responseUri = authorizationRequest.responseUri,
-            authorizationRequestNonce = authorizationRequest.nonce,
-            mdocGeneratedNonce = generatedNonce
-        )
 
-        if (authorizationRequest.clientMetadata["authorization_signed_response_alg"] != null) {
-            TODO("Support signing the authorization response")
-        }
+        val documentStore = walletApp.documentStore
+        val vpToken = documentStore.withLock {
+            val document = firstMatchingDocument(credentialFormat, docType)
+                ?: run {
+                    throw NoMatchingDocumentException(
+                        "No matching credentials in wallet for " +
+                                "docType $docType and credentialFormat $credentialFormat"
+                    )
+                }
 
-        val now = Clock.System.now()
-        val (credentialToUse, consentFields) = getCredentialAndConsentFields(
-            document,
-            credentialFormat,
-            inputDescriptorObj,
-            now)
-
-        var trustPoint: TrustPoint? = null
-        if (authorizationRequest.certificateChain != null) {
-            val trustResult = walletApp.readerTrustManager.verify(
-                authorizationRequest.certificateChain!!
+            // begin collecting and creating data needed for the response
+            val sessionTranscript = createSessionTranscript(
+                clientId = authorizationRequest.clientId,
+                responseUri = authorizationRequest.responseUri,
+                authorizationRequestNonce = authorizationRequest.nonce,
+                mdocGeneratedNonce = generatedNonce
             )
-            if (!trustResult.isTrusted) {
-                Logger.w(TAG, "Reader root not trusted")
-                if (trustResult.error != null) {
-                    Logger.w(TAG, "trustResult.error", trustResult.error!!)
+
+            if (authorizationRequest.clientMetadata["authorization_signed_response_alg"] != null) {
+                TODO("Support signing the authorization response")
+            }
+
+            val now = Clock.System.now()
+            val (credentialToUse, consentFields) = getCredentialAndConsentFields(
+                document,
+                credentialFormat,
+                inputDescriptorObj,
+                now
+            )
+
+            var trustPoint: TrustPoint? = null
+            if (authorizationRequest.certificateChain != null) {
+                val trustResult = walletApp.readerTrustManager.verify(
+                    authorizationRequest.certificateChain!!
+                )
+                if (!trustResult.isTrusted) {
+                    Logger.w(TAG, "Reader root not trusted")
+                    if (trustResult.error != null) {
+                        Logger.w(TAG, "trustResult.error", trustResult.error!!)
+                    }
+                }
+                if (trustResult.isTrusted && trustResult.trustPoints.size > 0) {
+                    trustPoint = trustResult.trustPoints[0]
                 }
             }
-            if (trustResult.isTrusted && trustResult.trustPoints.size > 0) {
-                trustPoint = trustResult.trustPoints[0]
+
+            val vpTokenByteArray = generateVpToken(
+                consentFields,
+                credentialToUse,
+                trustPoint,
+                authorizationRequest,
+                sessionTranscript
+            )
+            if (credentialToUse is MdocCredential) {
+                Base64.UrlSafe.encode(vpTokenByteArray).replace("=", "")
+            } else {
+                vpTokenByteArray.decodeToString()
             }
         }
 
-        val vpTokenByteArray = generateVpToken(consentFields, credentialToUse, trustPoint, authorizationRequest, sessionTranscript)
-        Logger.i(TAG, "Setting vp_token: ${vpTokenByteArray.decodeToString()}")
-        val vpToken = if (credentialToUse is MdocCredential) {
-            Base64.UrlSafe.encode(vpTokenByteArray).replace("=", "")
-        } else vpTokenByteArray.decodeToString()
+        Logger.i(TAG, "Setting vp_token: $vpToken")
         val claimSet = JWTClaimsSet.parse(Json.encodeToString(buildJsonObject {
             // put("id_token", idToken) // depends on response type, only supporting vp_token for now
             put("state", authorizationRequest.state)
@@ -650,14 +666,17 @@ class OpenID4VPPresentationActivity : FragmentActivity() {
         //
         return when (credential) {
             is MdocCredential -> {
-                val documentResponse = showMdocPresentmentFlow(
-                    activity = this,
-                    consentFields = consentFields,
-                    document = ConsentDocument(
+                val consentDocument = credential.document.withLock {
+                    ConsentDocument(
                         name = credential.document.documentConfiguration.displayName,
                         description = credential.document.documentConfiguration.typeDisplayName,
                         cardArt = credential.document.documentConfiguration.cardArt,
-                    ),
+                    )
+                }
+                val documentResponse = showMdocPresentmentFlow(
+                    activity = this,
+                    consentFields = consentFields,
+                    document = consentDocument,
                     relyingParty = ConsentRelyingParty(trustPoint),
                     credential = credential,
                     encodedSessionTranscript = sessionTranscript,
@@ -671,14 +690,17 @@ class OpenID4VPPresentationActivity : FragmentActivity() {
                 deviceResponseCbor
             }
             is SdJwtVcCredential -> {
-                showSdJwtPresentmentFlow(
-                    activity = this,
-                    consentFields = consentFields,
-                    document = ConsentDocument(
+                val consentDocument = credential.document.withLock {
+                    ConsentDocument(
                         name = credential.document.documentConfiguration.displayName,
                         description = credential.document.documentConfiguration.typeDisplayName,
                         cardArt = credential.document.documentConfiguration.cardArt,
-                    ),
+                    )
+                }
+                showSdJwtPresentmentFlow(
+                    activity = this,
+                    consentFields = consentFields,
+                    document = consentDocument,
                     relyingParty = ConsentRelyingParty(trustPoint),
                     credential = credential,
                     nonce = authorizationRequest.nonce,

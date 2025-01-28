@@ -3,8 +3,8 @@ package com.android.identity.server.openid4vci
 import com.android.identity.crypto.X509Cert
 import com.android.identity.flow.handler.InvalidRequestException
 import com.android.identity.flow.server.FlowEnvironment
-import com.android.identity.flow.server.Storage
-import com.android.identity.issuance.common.cache
+import com.android.identity.flow.cache
+import com.android.identity.flow.server.getTable
 import com.android.identity.sdjwt.util.JsonWebKey
 import com.android.identity.util.fromBase64Url
 import jakarta.servlet.http.HttpServletRequest
@@ -63,9 +63,9 @@ suspend fun createSession(environment: FlowEnvironment, req: HttpServletRequest)
     val dpopKey = JsonWebKey((assertionBody as JsonObject)["cnf"] as JsonObject).asEcPublicKey
 
     // Create a session
-    val storage = environment.getInterface(Storage::class)!!
+    val storage = environment.getTable(IssuanceState.tableSpec)
     val state = IssuanceState(clientId, scope, dpopKey, redirectUri, codeChallenge)
-    return storage.insert("IssuanceState", "", ByteString(state.toCbor()))
+    return storage.insert(key = null, data = ByteString(state.toCbor()))
 }
 
 private data class ClientCertificate(val certificate: X509Cert)

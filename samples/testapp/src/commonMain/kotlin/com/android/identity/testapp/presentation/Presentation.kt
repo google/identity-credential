@@ -391,7 +391,7 @@ private suspend fun mdocFindDocumentForRequest(
         for (credential in document.certifiedCredentials) {
             if (credential is MdocCredential &&
                 credential.docType == docRequest.docType &&
-                !credential.isInvalidated &&
+                !credential.isInvalidated() &&
                 now >= credential.validFrom && now <= credential.validUntil) {
                 return Pair(document, credential)
             }
@@ -452,7 +452,7 @@ private suspend fun showConsentPrompt(
     }
 }
 
-private fun calcDocument(
+private suspend fun calcDocument(
     document: Document,
     credential: MdocCredential,
     consentFields: List<MdocConsentField>,

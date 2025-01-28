@@ -78,8 +78,7 @@ class DocumentGenerator
         issuerNamespaces = issuerNameSpaces
     }
 
-    @Throws(KeyLockedException::class)
-    private fun setDeviceNamespaces(
+    private suspend fun setDeviceNamespaces(
         dataElements: NameSpacedData,
         secureArea: SecureArea,
         keyAlias: String,
@@ -187,8 +186,7 @@ class DocumentGenerator
      * @return the generator.
      * @throws KeyLockedException if the authentication key is locked.
      */
-    @Throws(KeyLockedException::class)
-    fun setDeviceNamespacesSignature(
+    suspend fun setDeviceNamespacesSignature(
         dataElements: NameSpacedData,
         secureArea: SecureArea,
         keyAlias: String,
@@ -219,8 +217,7 @@ class DocumentGenerator
      * @return the generator.
      * @throws KeyLockedException if the authentication key is locked.
      */
-    @Throws(KeyLockedException::class)
-    fun setDeviceNamespacesMac(
+    suspend fun setDeviceNamespacesMac(
         dataElements: NameSpacedData,
         secureArea: SecureArea,
         keyAlias: String,

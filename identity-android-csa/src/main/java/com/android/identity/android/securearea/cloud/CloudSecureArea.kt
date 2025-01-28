@@ -1,6 +1,5 @@
 package com.android.identity.android.securearea.cloud
 
-import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -51,7 +50,10 @@ import com.android.identity.securearea.cloud.fromCbor
 import com.android.identity.securearea.cloud.toCbor
 import com.android.identity.securearea.fromCbor
 import com.android.identity.securearea.toCbor
+import com.android.identity.storage.Storage
 import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.StorageTable
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import com.android.identity.util.toHex
 import io.ktor.client.HttpClient
@@ -65,8 +67,8 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Instant
+import kotlinx.io.bytestring.ByteString
 import org.bouncycastle.asn1.ASN1InputStream
 import org.bouncycastle.asn1.ASN1OctetString
 import java.io.IOException
@@ -102,14 +104,12 @@ import kotlin.time.Duration.Companion.milliseconds
  * for all keys used in the passed-in [storageEngine]. As such, it's safe to use the same
  * [StorageEngine] instance for multiple [CloudSecureArea] instances.
  *
- * @param context the application context.
- * @param storageEngine the storage engine to use for storing metadata about keys.
+ * @param storageTable the storage to use for storing metadata about keys.
  * @param identifier an identifier for the Cloud Secure Area.
  * @param serverUrl the URL the Cloud Secure Area is using.
  */
-open class CloudSecureArea(
-    private val context: Context,
-    private val storageEngine: StorageEngine,
+open class CloudSecureArea protected constructor(
+    private val storageTable: StorageTable,
     final override val identifier: String,
     val serverUrl: String,
 ) : SecureArea {
@@ -133,15 +133,14 @@ open class CloudSecureArea(
     }
 
     private var cloudBindingKey: EcPublicKey? = null
-    private var registrationContext: ByteArray? = null
+    private var registrationContext: ByteString? = null
 
-    init {
+    protected open suspend fun initialize() {
         require(identifier.startsWith(IDENTIFIER_PREFIX))
-
-        storageEngine["${identifier}_cloudBindingKey"]?.let {
-            cloudBindingKey = Cbor.decode(it).asCoseKey.ecPublicKey
+        storageTable.get(BINDING_KEY, identifier)?.let { bindingKeyData ->
+            cloudBindingKey = Cbor.decode(bindingKeyData.toByteArray()).asCoseKey.ecPublicKey
         }
-        registrationContext = storageEngine["${identifier}_registrationContext"]
+        registrationContext = storageTable.get(REGISTRATION_CONTEXT, identifier)
     }
 
     open suspend fun communicateLowlevel(
@@ -210,6 +209,7 @@ open class CloudSecureArea(
             kpg.initialize(builder.build())
             kpg.generateKeyPair()
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             val deviceBindingKeyAttestation =
                 X509CertChain.fromJavaX509Certificates(ks.getCertificateChain(deviceBindingKeyAlias))
@@ -229,14 +229,19 @@ open class CloudSecureArea(
 
             // Ready to go...
             cloudBindingKey = response1.cloudBindingKeyAttestation.certificates[0].ecPublicKey
-            registrationContext = response1.serverState
+            registrationContext = ByteString(response1.serverState)
 
             // ... and save for future use
-            storageEngine.put(
-                "${identifier}_cloudBindingKey",
-                Cbor.encode(cloudBindingKey!!.toCoseKey().toDataItem())
+            storageTable.insert(
+                key = BINDING_KEY,
+                partitionId = identifier,
+                data = ByteString(Cbor.encode(cloudBindingKey!!.toCoseKey().toDataItem()))
             )
-            storageEngine.put("${identifier}_registrationContext", registrationContext!!)
+            storageTable.insert(
+                key = REGISTRATION_CONTEXT,
+                partitionId = identifier,
+                data = registrationContext!!
+            )
 
             // We need E2EE before entering the second stage of registration - this is because we
             // need the data exchanged in this stage (e.g. the passphrase) to be encrypted so only
@@ -249,10 +254,17 @@ open class CloudSecureArea(
             val stage2Response0 =
                 CloudSecureAreaProtocol.Command.fromCbor(communicateE2EE(stage2Request0.toCbor()))
                         as CloudSecureAreaProtocol.RegisterStage2Response0
-            registrationContext = stage2Response0.serverState
-            storageEngine.put("${identifier}_registrationContext", registrationContext!!)
-            storageEngine.put("${identifier}_passphraseConstraints", passphraseConstraints.toCbor())
-
+            registrationContext = ByteString(stage2Response0.serverState)
+            storageTable.update(
+                key = REGISTRATION_CONTEXT,
+                partitionId = identifier,
+                data = registrationContext!!
+            )
+            storageTable.insert(
+                key = PASSPHRASE_CONSTRAINTS,
+                partitionId = identifier,
+                data = ByteString(passphraseConstraints.toCbor())
+            )
         } catch (e: Throwable) {
             throw CloudException(e)
         }
@@ -264,17 +276,17 @@ open class CloudSecureArea(
      * @return the [PassphraseConstraints] passed to to the [register] method.
      * @throws IllegalStateException if not registered with a Cloud Secure Area instance.
      */
-    val passphraseConstraints: PassphraseConstraints
-        get() {
-            val encoded = storageEngine.get("${identifier}_passphraseConstraints")
-                ?: throw IllegalStateException("Not registered with CSA")
-            return PassphraseConstraints.fromCbor(encoded)
-        }
+    suspend fun getPassphraseConstraints(): PassphraseConstraints {
+        val encoded = storageTable.get(key = PASSPHRASE_CONSTRAINTS, partitionId = identifier)
+            ?: throw IllegalStateException("Not registered with CSA")
+        return PassphraseConstraints.fromCbor(encoded.toByteArray())
+    }
 
-    fun unregister() {
+    suspend fun unregister() {
         // TODO: should we send a RPC to server to let them know we're bailing?
-        storageEngine.delete("${identifier}_cloudBindingKey")
-        storageEngine.delete("${identifier}_registrationContext")
+        storageTable.delete(BINDING_KEY)
+        storageTable.delete(REGISTRATION_CONTEXT)
+        storageTable.delete(PASSPHRASE_CONSTRAINTS)
         cloudBindingKey = null
         registrationContext = null
         skDevice = null
@@ -323,15 +335,15 @@ open class CloudSecureArea(
         }
     }
 
-    private fun setupE2EE(forceSetup: Boolean) {
+    private suspend fun setupE2EE(forceSetup: Boolean) {
         // No need to setup E2EE if it's already up...
         if (!forceSetup && skDevice != null) {
             return
         }
         var response: ByteArray
         try {
-            val request0 = E2EESetupRequest0(registrationContext!!)
-            response = runBlocking { communicate(serverUrl, request0.toCbor()) }
+            val request0 = E2EESetupRequest0(registrationContext!!.toByteArray())
+            response = communicate(serverUrl, request0.toCbor())
             val response0 = CloudSecureAreaProtocol.Command.fromCbor(response) as E2EESetupResponse0
             val deviceNonce = Random.Default.nextBytes(32)
             val eDeviceKey = Crypto.createEcPrivateKey(EcCurve.P256)
@@ -344,6 +356,7 @@ open class CloudSecureArea(
                     .build()
             )
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             val deviceBindingKeyEntry = ks.getEntry("DeviceBindingKey", null)
                 ?: throw IllegalArgumentException("No entry for DeviceBindingKey")
@@ -358,7 +371,7 @@ open class CloudSecureArea(
                 EcSignature.fromDerEncoded(EcCurve.P256.bitSize, derSignature),
                 response0.serverState
             )
-            response = runBlocking { communicate(serverUrl, request1.toCbor()) }
+            response = communicate(serverUrl, request1.toCbor())
             val response1 = CloudSecureAreaProtocol.Command.fromCbor(response) as E2EESetupResponse1
             val dataSignedByTheCloud = Cbor.encode(
                 CborArray.builder()
@@ -432,11 +445,11 @@ open class CloudSecureArea(
     }
 
     // This is internal rather than private b/c it's used in testPassphraseCannotBeChanged()
-    internal fun communicateE2EE(requestData: ByteArray): ByteArray {
+    internal suspend fun communicateE2EE(requestData: ByteArray): ByteArray {
         return communicateE2EEInternal(requestData, 0)
     }
 
-    private fun communicateE2EEInternal(
+    private suspend fun communicateE2EEInternal(
         requestData: ByteArray,
         callDepth: Int
     ): ByteArray {
@@ -444,9 +457,8 @@ open class CloudSecureArea(
             encryptToCloud(requestData),
             e2eeContext!!
         )
-        val (httpResponseCode, response) = runBlocking {
-            communicateLowlevel(serverUrl, requestWrapper.toCbor())
-        }
+        val (httpResponseCode, response) = communicateLowlevel(serverUrl, requestWrapper.toCbor())
+
         if (httpResponseCode == HttpURLConnection.HTTP_BAD_REQUEST) {
             // This status code means that decryption failed
             if (callDepth > 10) {
@@ -463,10 +475,15 @@ open class CloudSecureArea(
         return decryptFromCloud(responseWrapper.encryptedResponse)
     }
 
-    override fun createKey(
-        alias: String,
+    override suspend fun createKey(
+        alias: String?,
         createKeySettings: com.android.identity.securearea.CreateKeySettings
-    ) {
+    ): String {
+        if (alias != null) {
+            // If the key with the given alias exists, it is silently overwritten.
+            // TODO: review if this is the semantics we want
+            storageTable.delete(alias)
+        }
         val cSettings = if (createKeySettings is CloudCreateKeySettings) {
             createKeySettings
         } else {
@@ -493,7 +510,12 @@ open class CloudSecureArea(
                 cSettings.attestationChallenge
             )
             val response0 = CloudSecureAreaProtocol.Command.fromCbor(communicateE2EE(request0.toCbor())) as CreateKeyResponse0
-            val localKeyAlias = getLocalKeyAlias(alias)
+            val newKeyAlias = storageTable.insert(
+                key = alias,
+                partitionId = identifier,
+                data = ByteString()
+            )
+            val localKeyAlias = getLocalKeyAlias(newKeyAlias)
             val kpg =
                 KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
             val builder = KeyGenParameterSpec.Builder(localKeyAlias, KeyProperties.PURPOSE_SIGN)
@@ -530,49 +552,62 @@ open class CloudSecureArea(
             kpg.initialize(builder.build())
             kpg.generateKeyPair()
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             val request1 = CreateKeyRequest1(
                 X509CertChain.fromJavaX509Certificates(ks.getCertificateChain(localKeyAlias)),
                 response0.serverState
             )
             val response1 = CloudSecureAreaProtocol.Command.fromCbor(communicateE2EE(request1.toCbor())) as CreateKeyResponse1
-            storageEngine.put(
-                getStoragePrefixForPerKeyServerState(alias),
-                response1.serverState
+            storageTable.update(
+                key = newKeyAlias,
+                partitionId = identifier,
+                data = ByteString(response1.serverState)
             )
-            saveKeyMetadata(alias, cSettings, response1.remoteKeyAttestation)
+            saveKeyMetadata(newKeyAlias, cSettings, response1.remoteKeyAttestation)
+            return newKeyAlias
         } catch (e: Exception) {
             throw CloudException(e)
         }
     }
 
-    override fun deleteKey(alias: String) {
+    override suspend fun deleteKey(alias: String) {
         val localKeyAlias = getLocalKeyAlias(alias)
         val ks: KeyStore
         try {
             ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             if (!ks.containsAlias(localKeyAlias)) {
                 Logger.w(TAG, "Key with alias '$localKeyAlias' doesn't exist")
             } else {
                 ks.deleteEntry(localKeyAlias)
             }
-            storageEngine.delete(getStoragePrefixForPerKeyServerState(alias))
-            storageEngine.delete(getStoragePrefixForKeyInfo(alias))
+            storageTable.delete(
+                key = alias,
+                partitionId = identifier
+            )
+            storageTable.delete(
+                key = METADATA_PREFIX + alias,
+                partitionId = identifier
+            )
         } catch (e: Exception) {
             throw IllegalStateException("Error loading keystore", e)
         }
     }
 
     @Throws(com.android.identity.securearea.KeyLockedException::class)
-    override fun sign(
+    override suspend fun sign(
         alias: String,
         signatureAlgorithm: Algorithm,
         dataToSign: ByteArray,
         keyUnlockData: com.android.identity.securearea.KeyUnlockData?
     ): EcSignature {
         var resultingSignature: EcSignature? = null
-        val keyContext = storageEngine[getStoragePrefixForPerKeyServerState(alias)]
+        val keyContext = storageTable.get(
+            key = alias,
+            partitionId = identifier
+        )
         setupE2EE(false)
         var response: ByteArray
 
@@ -589,7 +624,7 @@ open class CloudSecureArea(
 
         try {
             val request0 =
-                SignRequest0(signatureAlgorithm.coseAlgorithmIdentifier, dataToSign, keyContext!!)
+                SignRequest0(signatureAlgorithm.coseAlgorithmIdentifier, dataToSign, keyContext!!.toByteArray())
             response = communicateE2EE(request0.toCbor())
             val response0 = CloudSecureAreaProtocol.Command.fromCbor(response) as SignResponse0
             val dataToSignLocally = Cbor.encode(
@@ -600,6 +635,7 @@ open class CloudSecureArea(
             )
             val localKeyAlias = getLocalKeyAlias(alias)
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             val deviceBindingKeyEntry = ks.getEntry(localKeyAlias, null)
                 ?: throw KeyInvalidatedException("This key is no longer available")
@@ -641,9 +677,7 @@ open class CloudSecureArea(
                     }
 
                     CloudSecureAreaProtocol.RESULT_TOO_MANY_PASSPHRASE_ATTEMPTS -> {
-                        runBlocking {
-                            delayForBruteforceMitigation(response1.waitDurationMillis.milliseconds)
-                        }
+                        delayForBruteforceMitigation(response1.waitDurationMillis.milliseconds)
                         tryAgain = true
                     }
 
@@ -688,13 +722,13 @@ open class CloudSecureArea(
     }
 
     @Throws(com.android.identity.securearea.KeyLockedException::class)
-    override fun keyAgreement(
+    override suspend fun keyAgreement(
         alias: String,
         otherKey: EcPublicKey,
         keyUnlockData: com.android.identity.securearea.KeyUnlockData?
     ): ByteArray {
         var Zab: ByteArray? = null
-        val keyContext = storageEngine[getStoragePrefixForPerKeyServerState(alias)]
+        val keyContext = storageTable.get(key = alias, partitionId = identifier)
         setupE2EE(false)
         var response: ByteArray
 
@@ -710,7 +744,7 @@ open class CloudSecureArea(
         }
 
         try {
-            val request0 = KeyAgreementRequest0(otherKey.toCoseKey(), keyContext!!)
+            val request0 = KeyAgreementRequest0(otherKey.toCoseKey(), keyContext!!.toByteArray())
             response = communicateE2EE(request0.toCbor())
             val response0 = CloudSecureAreaProtocol.Command.fromCbor(response) as KeyAgreementResponse0
             val dataToSignLocally = Cbor.encode(
@@ -721,6 +755,7 @@ open class CloudSecureArea(
             )
             val localKeyAlias = getLocalKeyAlias(alias)
             val ks = KeyStore.getInstance("AndroidKeyStore")
+            // TODO: move to an IO thread
             ks.load(null)
             val deviceBindingKeyEntry = ks.getEntry(localKeyAlias, null)
                 ?: throw KeyInvalidatedException("This key is no longer available")
@@ -762,9 +797,7 @@ open class CloudSecureArea(
                     }
 
                     CloudSecureAreaProtocol.RESULT_TOO_MANY_PASSPHRASE_ATTEMPTS -> {
-                        runBlocking {
-                            delayForBruteforceMitigation(response1.waitDurationMillis.milliseconds)
-                        }
+                        delayForBruteforceMitigation(response1.waitDurationMillis.milliseconds)
                         tryAgain = true
                     }
 
@@ -807,10 +840,10 @@ open class CloudSecureArea(
         return Zab!!
     }
 
-    override fun getKeyInfo(alias: String): CloudKeyInfo {
-        val data = storageEngine[getStoragePrefixForKeyInfo(alias)]
+    override suspend fun getKeyInfo(alias: String): CloudKeyInfo {
+        val data = storageTable.get(key = METADATA_PREFIX + alias, partitionId = identifier)
             ?: throw IllegalArgumentException("No key with given alias")
-        val map = Cbor.decode(data)
+        val map = Cbor.decode(data.toByteArray())
         val keyPurposes = map["keyPurposes"].asNumber
         val userAuthenticationRequired = map["userAuthenticationRequired"].asBoolean
         val userAuthenticationTimeoutMillis = map["userAuthenticationTimeoutMillis"].asNumber
@@ -839,8 +872,9 @@ open class CloudSecureArea(
         )
     }
 
-    override fun getKeyInvalidated(alias: String): Boolean {
+    override suspend fun getKeyInvalidated(alias: String): Boolean {
         val ks = KeyStore.getInstance("AndroidKeyStore")
+        // TODO: move to an IO thread
         ks.load(null)
         // If the LSKF is removed, all auth-bound keys are removed and the result is
         // that KeyStore.getEntry() returns null.
@@ -848,7 +882,7 @@ open class CloudSecureArea(
         return ks.getEntry(localKeyAlias, null) == null
     }
 
-    private fun saveKeyMetadata(
+    private suspend fun saveKeyMetadata(
         alias: String,
         settings: CloudCreateKeySettings,
         attestationCertChain: X509CertChain
@@ -870,29 +904,53 @@ open class CloudSecureArea(
         map.put("isPassphraseRequired", settings.passphraseRequired)
         map.put("useStrongBox", settings.useStrongBox)
         map.put("attestationCertChain", attestationCertChain.toDataItem())
-        storageEngine.put(getStoragePrefixForKeyInfo(alias), Cbor.encode(map.end().build()))
+        storageTable.insert(
+            key = METADATA_PREFIX + alias,
+            partitionId = identifier,
+            data = ByteString(Cbor.encode(map.end().build()))
+        )
     }
 
-    // Returns the prefix used in Android Keystore aliases for local keys
-    // to avoid conflicts with regular Android Keystore keys and multiple instances
-    // of the [CloudSecureArea].
     internal fun getLocalKeyAlias(alias: String): String {
         return "${identifier}_alias_${alias}"
-    }
-
-    // Returns the prefix used for storing key-info for a cloud-based key.
-    private fun getStoragePrefixForKeyInfo(alias: String): String {
-        return "${identifier}_KeyInfo_${alias}"
-    }
-
-    // Returns the prefix used for storing server state for a cloud-based key.
-    private fun getStoragePrefixForPerKeyServerState(alias: String): String {
-        return "${identifier}_ServerState_${alias}"
     }
 
     companion object {
         const val IDENTIFIER_PREFIX = "CloudSecureArea"
 
         private const val TAG = "CloudSecureArea"
+
+        // Special keys in storage
+        private const val BINDING_KEY = "[BindingKey]"
+        private const val REGISTRATION_CONTEXT = "[RegistrationContext]"
+        private const val PASSPHRASE_CONSTRAINTS = "[PassphraseConstraints]"
+
+        // Prefix for metadata storage key
+        private const val METADATA_PREFIX = "@"
+
+        /**
+         * Creates an instance of AndroidKeystoreSecureArea.
+         *
+         * @param storage the storage engine to use for storing key material.
+         */
+        suspend fun create(
+            storage: Storage,
+            identifier: String,
+            serverUrl: String
+        ): CloudSecureArea {
+            val secureArea = CloudSecureArea(
+                storage.getTable(tableSpec),
+                identifier,
+                serverUrl
+            )
+            secureArea.initialize()
+            return secureArea
+        }
+
+        private val tableSpec = StorageTableSpec(
+            name = "CloudSecureArea",
+            supportPartitions = true,
+            supportExpiration = false
+        )
     }
 }

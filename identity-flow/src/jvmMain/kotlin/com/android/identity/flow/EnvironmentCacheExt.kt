@@ -1,4 +1,4 @@
-package com.android.identity.issuance.common
+package com.android.identity.flow
 
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment

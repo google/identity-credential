@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,12 +68,12 @@ import com.android.identity.securearea.KeyPurpose
 import com.android.identity.securearea.PassphraseConstraints
 import com.android.identity.storage.EphemeralStorageEngine
 import com.android.identity.util.AndroidContexts
+import com.android.identity.storage.ephemeral.EphemeralStorage
 import com.android.identity.util.Logger
 import com.android.identity.util.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
 import kotlin.time.Duration.Companion.days
 
@@ -120,6 +121,8 @@ actual fun CloudSecureAreaScreen(showToast: (message: String) -> Unit) {
     val showConnectDialog = remember { mutableStateOf(false) }
     val showPassphraseDialog = remember { mutableStateOf<CsaPassphraseTestConfiguration?>(null) }
 
+    val coroutineScope = rememberCoroutineScope()
+
     if (showCertificateDialog.value != null) {
         ShowCertificateDialog(showCertificateDialog.value!!.certChain!!,
             onDismissRequest = {
@@ -134,7 +137,7 @@ actual fun CloudSecureAreaScreen(showToast: (message: String) -> Unit) {
             },
             onContinueButtonClicked = { passphraseEnteredByUser: String ->
                 val configuration = showPassphraseDialog.value!!
-                CoroutineScope(Dispatchers.IO).launch {
+                coroutineScope.launch {
                     csaTest(
                         configuration.keyPurpose,
                         configuration.curve,
@@ -163,20 +166,17 @@ actual fun CloudSecureAreaScreen(showToast: (message: String) -> Unit) {
             onConnectButtonClicked = { url: String, walletPin: String ->
                 sharedPreferences.edit().putString("csaUrl", url).apply()
                 showConnectDialog.value = false
-                CoroutineScope(Dispatchers.IO).launch {
-                    cloudSecureArea = CloudSecureArea(
-                        AndroidContexts.applicationContext,
-                        EphemeralStorageEngine(),
+                coroutineScope.launch {
+                    cloudSecureArea = CloudSecureArea.create(
+                        EphemeralStorage(),
                         "CloudSecureArea",
                         url
                     )
                     try {
-                        runBlocking {
-                            cloudSecureArea!!.register(
-                                walletPin,
-                                PassphraseConstraints.PIN_SIX_DIGITS,
-                                { true })
-                        }
+                        cloudSecureArea!!.register(
+                            walletPin,
+                            PassphraseConstraints.PIN_SIX_DIGITS
+                        ) { true }
                         showToast("Registered with CSA")
                         connectText =
                             "Connected to ${cloudSecureArea!!.serverUrl}"
@@ -195,13 +195,15 @@ actual fun CloudSecureAreaScreen(showToast: (message: String) -> Unit) {
 
         item {
             TextButton(onClick = {
-                if (cloudSecureArea != null) {
-                    cloudSecureArea!!.unregister()
-                    cloudSecureArea = null
-                    connectText = "Click to connect to Cloud Secure Area"
-                    connectColor = Color.Red
-                } else {
-                    showConnectDialog.value = true
+                coroutineScope.launch {
+                    if (cloudSecureArea != null) {
+                        cloudSecureArea!!.unregister()
+                        cloudSecureArea = null
+                        connectText = "Click to connect to Cloud Secure Area"
+                        connectColor = Color.Red
+                    } else {
+                        showConnectDialog.value = true
+                    }
                 }
             })
             {
@@ -623,7 +625,7 @@ private fun ShowPassphraseDialog(
     }
 }
 
-private fun csaAttestation(
+private suspend fun csaAttestation(
     showToast: (message: String) -> Unit
 ): KeyAttestation? {
     if (cloudSecureArea == null) {
@@ -813,9 +815,9 @@ private suspend fun doUserAuth(
     cryptoObject: BiometricPrompt.CryptoObject?,
     forceLskf: Boolean,
     biometricConfirmationRequired: Boolean,
-    onAuthSuccees: () -> Unit,
-    onAuthFailure: () -> Unit,
-    onDismissed: () -> Unit
+    onAuthSuccees: suspend () -> Unit,
+    onAuthFailure: suspend () -> Unit,
+    onDismissed: suspend () -> Unit
 ) {
     val promptInfoBuilder = BiometricPrompt.PromptInfo.Builder()
         .setTitle("Authentication required")

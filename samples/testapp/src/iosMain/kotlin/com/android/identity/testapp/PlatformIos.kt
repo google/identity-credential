@@ -1,9 +1,14 @@
 package com.android.identity.testapp
 
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.driver.NativeSQLiteDriver
 import com.android.identity.securearea.CreateKeySettings
 import com.android.identity.securearea.SecureArea
+import com.android.identity.securearea.SecureAreaProvider
 import com.android.identity.securearea.SecureEnclaveSecureArea
 import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.Storage
+import com.android.identity.storage.sqlite.SqliteStorage
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.NativePlacement
@@ -16,6 +21,12 @@ import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.newSingleThreadContext
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSUserDomainMask
 import platform.darwin.freeifaddrs
 import platform.darwin.getifaddrs
 import platform.darwin.ifaddrs
@@ -68,12 +79,37 @@ actual fun getLocalIpAddress(): String {
     throw IllegalStateException("Unable to determine local address")
 }
 
-private val secureEnclaveStorage = EphemeralStorageEngine()
+@OptIn(ExperimentalForeignApi::class)
+private fun openDatabase(): SQLiteConnection {
+    val fileManager = NSFileManager.defaultManager
+    val rootPath = fileManager.URLForDirectory(
+        NSDocumentDirectory,
+        NSUserDomainMask,
+        appropriateForURL = null,
+        create = false,
+        error = null)
+        ?: throw RuntimeException("could not get documents directory url")
+    println("Root path: $rootPath")
+    return NativeSQLiteDriver().open(rootPath.path() + "/storage.db")
+}
 
-private val secureEnclaveSecureArea = SecureEnclaveSecureArea(secureEnclaveStorage)
+@OptIn(ExperimentalCoroutinesApi::class, DelicateCoroutinesApi::class)
+private val iosStorage = SqliteStorage(
+    connection = openDatabase(),
+    // native sqlite crashes when used with Dispatchers.IO
+    coroutineContext = newSingleThreadContext("DB")
+)
 
-actual fun platformSecureArea(): SecureArea {
-    return secureEnclaveSecureArea
+private val secureEnclaveSecureAreaProvider = SecureAreaProvider {
+    SecureEnclaveSecureArea.create(iosStorage)
+}
+
+actual fun platformStorage(): Storage {
+    return iosStorage
+}
+
+actual fun platformSecureAreaProvider(): SecureAreaProvider<SecureArea> {
+    return secureEnclaveSecureAreaProvider
 }
 
 actual fun platformKeySetting(clientId: String): CreateKeySettings {

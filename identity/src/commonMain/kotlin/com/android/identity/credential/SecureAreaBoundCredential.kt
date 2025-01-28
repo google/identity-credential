@@ -38,38 +38,47 @@ open class SecureAreaBoundCredential : Credential {
     /**
      * Constructs a new [SecureAreaBoundCredential].
      *
+     * [generateKey] providing [CreateKeySettings] must be called before using this object.
+     *
      * @param document the document to add the credential to.
      * @param asReplacementFor the credential this credential will replace, if not null
      * @param domain the domain of the credential
      * @param secureArea the secure area for the authentication key associated with this credential.
-     * @param createKeySettings the settings used to create new credentials.
      */
     constructor(
         document: Document,
         asReplacementFor: Credential?,
         domain: String,
         secureArea: SecureArea,
-        createKeySettings: CreateKeySettings,
     ) : super(document, asReplacementFor, domain) {
         this.secureArea = secureArea
-        this.alias = SECURE_AREA_ALIAS_PREFIX + identifier
-        this.secureArea.createKey(alias, createKeySettings)
-        // Only the leaf constructor should add the credential to the document.
-        if (this::class == SecureAreaBoundCredential::class) {
-            addToDocument()
-        }
+    }
+
+    /**
+     * Generates an authentication key to which this credential is bound and adds the credential
+     * to the document.
+     *
+     * @param createKeySettings [CreateKeySettings] that are used to create the key.
+     */
+    suspend fun generateKey(createKeySettings: CreateKeySettings) {
+        document.checkLocked()
+        alias = secureArea.createKey(null, createKeySettings)
+        addToDocument()
     }
 
     /**
      * Constructs a Credential from serialized data.
      *
      * @param document the [Document] that the credential belongs to.
-     * @param dataItem the serialized data.
+     *
+     * [deserialize] must be called before using this object.
      */
     constructor(
         document: Document,
-        dataItem: DataItem,
-    ) : super(document, dataItem) {
+    ) : super(document)
+
+    override suspend fun deserialize(dataItem: DataItem) {
+        super.deserialize(dataItem)
         alias = dataItem["alias"].asTstr
         val secureAreaIdentifier = dataItem["secureAreaIdentifier"].asTstr
         secureArea = document.secureAreaRepository.getImplementation(secureAreaIdentifier)
@@ -81,17 +90,17 @@ open class SecureAreaBoundCredential : Credential {
      *
      * This can be used together with the alias returned by [alias].
      */
-    val secureArea: SecureArea
+    lateinit var secureArea: SecureArea
+        private set
 
     /**
      * The alias for the authentication key associated with this credential.
      *
      * This can be used together with the [SecureArea] returned by [secureArea]
      */
-    val alias: String
+    lateinit var alias: String
 
-    override val isInvalidated: Boolean
-        get() = secureArea.getKeyInvalidated(alias)
+    override suspend fun isInvalidated(): Boolean = secureArea.getKeyInvalidated(alias)
 
     /**
      * The attestation for the [SecureArea] key associated with this credential.
@@ -101,15 +110,16 @@ open class SecureAreaBoundCredential : Credential {
      * Once received, the application should call [Credential.certify] to certify
      * the [Credential].
      */
-    val attestation: KeyAttestation
-        get() = secureArea.getKeyInfo(alias).attestation
+    suspend fun getAttestation(): KeyAttestation = secureArea.getKeyInfo(alias).attestation
 
-    override fun delete() {
+    override suspend fun delete() {
+        document.checkLocked()
         secureArea.deleteKey(alias)
         super.delete()
     }
 
     override fun addSerializedData(builder: MapBuilder<CborBuilder>) {
+        document.checkLocked()
         super.addSerializedData(builder)
         builder.put("secureAreaIdentifier", secureArea.identifier)
             .put("alias", alias)

@@ -4,6 +4,7 @@ import com.android.identity.cbor.annotation.CborSerializable
 import com.android.identity.crypto.EcPrivateKey
 import com.android.identity.crypto.EcPublicKey
 import com.android.identity.document.NameSpacedData
+import com.android.identity.storage.StorageTableSpec
 import kotlinx.io.bytestring.ByteString
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -41,7 +42,13 @@ data class IssuanceState(
     var pidNonce: String? = null,
     var credentialData: NameSpacedData? = null
 ) {
-    companion object
+    companion object {
+        val tableSpec = StorageTableSpec(
+            name = "Openid4VciServerIssuanceState",
+            supportPartitions = false,
+            supportExpiration = false
+        )
+    }
 }
 
 /**

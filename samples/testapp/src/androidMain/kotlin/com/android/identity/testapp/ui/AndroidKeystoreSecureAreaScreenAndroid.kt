@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,6 +61,7 @@ import com.android.identity.crypto.javaX509Certificate
 import com.android.identity.securearea.KeyLockedException
 import com.android.identity.securearea.KeyPurpose
 import com.android.identity.util.AndroidContexts
+import com.android.identity.testapp.platformSecureAreaProvider
 import com.android.identity.util.Logger
 import com.android.identity.util.toHex
 import kotlinx.coroutines.CoroutineScope
@@ -70,17 +72,6 @@ import kotlinx.io.files.Path
 import kotlin.time.Duration.Companion.days
 
 private val TAG = "AndroidKeystoreSecureAreaScreen"
-
-private val androidKeystoreStorage: AndroidStorageEngine by lazy { 
-    AndroidStorageEngine.Builder(
-        AndroidContexts.applicationContext,
-        Path(AndroidContexts.applicationContext.dataDir.path, "testdata.bin")
-    ).build()
-}
-
-private val androidKeystoreSecureArea: AndroidKeystoreSecureArea by lazy {
-    AndroidKeystoreSecureArea(AndroidContexts.applicationContext, androidKeystoreStorage)
-}
 
 private val androidKeystoreCapabilities: AndroidKeystoreSecureArea.Capabilities by lazy {
     AndroidKeystoreSecureArea.Capabilities(AndroidContexts.applicationContext)
@@ -117,7 +108,9 @@ actual fun AndroidKeystoreSecureAreaScreen(showToast: (message: String) -> Unit)
                 showCertificateDialog.value = null
             })
     }
-    
+
+    val coroutineScope = rememberCoroutineScope()
+
     LazyColumn {
 
         item {
@@ -135,10 +128,11 @@ actual fun AndroidKeystoreSecureAreaScreen(showToast: (message: String) -> Unit)
 
         item {
             TextButton(onClick = {
-                // TODO: Does a lot of I/O, cannot run on UI thread
-                val attestation = aksAttestation(false)
-                Logger.d(TAG, "attestation: " + attestation)
-                showCertificateDialog.value = attestation
+                coroutineScope.launch {
+                    val attestation = aksAttestation(false)
+                    Logger.d(TAG, "attestation: " + attestation)
+                    showCertificateDialog.value = attestation
+                }
             })
             {
                 Text(
@@ -150,10 +144,11 @@ actual fun AndroidKeystoreSecureAreaScreen(showToast: (message: String) -> Unit)
 
         item {
             TextButton(onClick = {
-                // TODO: Does a lot of I/O, cannot run on UI thread
-                val attestation = aksAttestation(true)
-                Logger.d(TAG, "attestation: " + attestation)
-                showCertificateDialog.value = attestation
+                coroutineScope.launch {
+                    val attestation = aksAttestation(true)
+                    Logger.d(TAG, "attestation: " + attestation)
+                    showCertificateDialog.value = attestation
+                }
             })
             {
                 Text(
@@ -202,17 +197,18 @@ actual fun AndroidKeystoreSecureAreaScreen(showToast: (message: String) -> Unit)
                         val biometricConfirmationRequired = (authTimeout >= 0L)
                         item {
                             TextButton(onClick = {
-                                // TODO: Does a lot of I/O, cannot run on UI thread
-                                aksTest(
-                                    keyPurpose,
-                                    curve,
-                                    userAuthType != AUTH_NONE,
-                                    if (authTimeout < 0L) 0L else authTimeout,
-                                    userAuthType,
-                                    biometricConfirmationRequired,
-                                    strongBox,
-                                    showToast
-                                )
+                                coroutineScope.launch {
+                                    aksTest(
+                                        keyPurpose,
+                                        curve,
+                                        userAuthType != AUTH_NONE,
+                                        if (authTimeout < 0L) 0L else authTimeout,
+                                        userAuthType,
+                                        biometricConfirmationRequired,
+                                        strongBox,
+                                        showToast
+                                    )
+                                }
                             })
                             {
                                 Text(
@@ -472,9 +468,10 @@ private fun getFeatureVersionKeystore(appContext: Context, useStrongbox: Boolean
     return 0
 }
 
-private fun aksAttestation(strongBox: Boolean): X509CertChain {
+private suspend fun aksAttestation(strongBox: Boolean): X509CertChain {
     val now = Clock.System.now()
     val thirtyDaysFromNow = now + 30.days
+    val androidKeystoreSecureArea = platformSecureAreaProvider().get() as AndroidKeystoreSecureArea
     androidKeystoreSecureArea.createKey(
         "testKey",
         AndroidKeystoreCreateKeySettings.Builder("Challenge".toByteArray())
@@ -489,7 +486,7 @@ private fun aksAttestation(strongBox: Boolean): X509CertChain {
     return androidKeystoreSecureArea.getKeyInfo("testKey").attestation.certChain!!
 }
 
-private fun aksTest(
+private suspend fun aksTest(
     keyPurpose: KeyPurpose,
     curve: EcCurve,
     authRequired: Boolean,
@@ -511,7 +508,7 @@ private fun aksTest(
     }
 }
 
-private fun aksTestUnguarded(
+private suspend fun aksTestUnguarded(
     keyPurpose: KeyPurpose,
     curve: EcCurve,
     authRequired: Boolean,
@@ -521,6 +518,7 @@ private fun aksTestUnguarded(
     strongBox: Boolean,
     showToast: (message: String) -> Unit) {
 
+    val androidKeystoreSecureArea = platformSecureAreaProvider().get() as AndroidKeystoreSecureArea
     androidKeystoreSecureArea.createKey(
         "testKey",
         AndroidKeystoreCreateKeySettings.Builder("Challenge".toByteArray())
@@ -631,9 +629,9 @@ private fun doUserAuth(
     cryptoObject: BiometricPrompt.CryptoObject?,
     forceLskf: Boolean,
     biometricConfirmationRequired: Boolean,
-    onAuthSuccees: () -> Unit,
-    onAuthFailure: () -> Unit,
-    onDismissed: () -> Unit
+    onAuthSuccees: suspend () -> Unit,
+    onAuthFailure: suspend () -> Unit,
+    onDismissed: suspend () -> Unit
 ) {
     // Run this in a worker thread...
     CoroutineScope(Dispatchers.IO).launch {

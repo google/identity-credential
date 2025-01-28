@@ -65,11 +65,13 @@ interface SecureArea {
      * replaced by the new key.
      *
      * @param alias             A unique string to identify the newly created key.
+     *    when null is passed, a new unique alias is generated automatically
      * @param createKeySettings A [CreateKeySettings] object.
      * @throws IllegalArgumentException if the underlying Secure Area Implementation
      * does not support the requested creation settings, for example the EC curve to use.
+     * @return key alias
      */
-    fun createKey(alias: String, createKeySettings: CreateKeySettings)
+    suspend fun createKey(alias: String?, createKeySettings: CreateKeySettings): String
 
     /**
      * Deletes a previously created key.
@@ -78,7 +80,7 @@ interface SecureArea {
      *
      * @param alias The alias of the EC key to delete.
      */
-    fun deleteKey(alias: String)
+    suspend fun deleteKey(alias: String)
 
     /**
      * Signs data with a key.
@@ -98,7 +100,7 @@ interface SecureArea {
      * @throws KeyLockedException if the key needs unlocking.
      * @throws KeyInvalidatedException if the key is no longer usable.
      */
-    fun sign(
+    suspend fun sign(
         alias: String,
         signatureAlgorithm: Algorithm,
         dataToSign: ByteArray,
@@ -122,7 +124,7 @@ interface SecureArea {
      * @throws KeyLockedException if the key needs unlocking.
      * @throws KeyInvalidatedException if the key is no longer usable.
      */
-    fun keyAgreement(
+    suspend fun keyAgreement(
         alias: String,
         otherKey: EcPublicKey,
         keyUnlockData: KeyUnlockData?
@@ -136,7 +138,7 @@ interface SecureArea {
      * @throws IllegalArgumentException if there is no key with the given alias.
      * @throws KeyInvalidatedException if the key is invalidated.
      */
-    fun getKeyInfo(alias: String): KeyInfo
+    suspend fun getKeyInfo(alias: String): KeyInfo
 
     /**
      * Checks whether the key has been invalidated.
@@ -145,5 +147,5 @@ interface SecureArea {
      * @return `true` if the key has been invalidated, `false` otherwise.
      * @throws IllegalArgumentException if there is no key with the given alias.
      */
-    fun getKeyInvalidated(alias: String): Boolean
+    suspend fun getKeyInvalidated(alias: String): Boolean
 }

@@ -1,20 +1,10 @@
 package com.android.identity_credential.wallet
 
 import com.android.identity.device.DeviceAssertion
-import com.android.identity.issuance.RegistrationResponse
-import com.android.identity.issuance.DocumentCondition
-import com.android.identity.issuance.CredentialFormat
-import com.android.identity.issuance.CredentialRequest
-import com.android.identity.issuance.evidence.EvidenceRequestMessage
-import com.android.identity.issuance.evidence.EvidenceRequestQuestionMultipleChoice
-import com.android.identity.issuance.evidence.EvidenceRequestQuestionString
 import com.android.identity.issuance.evidence.EvidenceResponseMessage
-import com.android.identity.issuance.evidence.EvidenceResponseQuestionMultipleChoice
-import com.android.identity.issuance.evidence.EvidenceResponseQuestionString
-import com.android.identity.issuance.evidence.EvidenceRequest
 import com.android.identity.securearea.CreateKeySettings
 import com.android.identity.securearea.software.SoftwareSecureArea
-import com.android.identity.storage.EphemeralStorageEngine
+import com.android.identity.storage.ephemeral.EphemeralStorage
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.bytestring.ByteString
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -62,8 +52,8 @@ class SelfSignedMdlTest {
 
     @Test
     fun happyPath() = runTest {
-        val storageEngine = EphemeralStorageEngine()
-        val secureArea = SoftwareSecureArea(storageEngine)
+        val storage = EphemeralStorage()
+        val secureArea = SoftwareSecureArea.create(storage)
 
         val ia = TestIssuingAuthority()
 

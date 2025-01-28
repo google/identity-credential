@@ -8,10 +8,13 @@ import com.android.identity.flow.handler.FlowNotifications
 import com.android.identity.flow.handler.SimpleCipher
 import com.android.identity.flow.server.FlowEnvironment
 import com.android.identity.flow.server.Resources
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.hardcoded.IssuerDocument
 import com.android.identity.issuance.hardcoded.IssuingAuthorityState
+import com.android.identity.issuance.wallet.AuthenticationState
 import com.android.identity.server.BaseHttpServlet
+import com.android.identity.storage.Storage
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import com.android.identity.util.htmlEscape
 import io.ktor.utils.io.core.toByteArray
@@ -51,29 +54,33 @@ class AdminServlet : BaseHttpServlet() {
         private fun saltedHash(password: String): ByteString {
             return ByteString(Crypto.digest(Algorithm.SHA256, "$PASSWORD_SALT$password".toByteArray()))
         }
+
+        val rootStateTableSpec = StorageTableSpec(
+            name = "AdminServletRootState",
+            supportExpiration = false,
+            supportPartitions = false
+        )
     }
 
     override fun initializeEnvironment(env: FlowEnvironment): FlowNotifications? {
-        val storage = env.getInterface(Storage::class)!!
-        val messageEncryptionKey = runBlocking {
-            val key = storage.get("RootState", "", "adminStateEncryptionKey")
-            if (key != null) {
+        runBlocking {
+            val storage = env.getTable(rootStateTableSpec)
+            val key = storage.get("adminStateEncryptionKey")
+            val messageEncryptionKey = if (key != null) {
                 key.toByteArray()
             } else {
                 val newKey = Random.nextBytes(16)
                 storage.insert(
-                    "RootState",
-                    "",
-                    ByteString(newKey),
-                    "adminStateEncryptionKey")
+                    key = "adminStateEncryptionKey",
+                    data = ByteString(newKey),
+                )
                 newKey
             }
-        }
-        stateCipher = AesGcmCipher(messageEncryptionKey)
-        adminPasswordHash = runBlocking {
-            // Don't write initial password hash in the storage
-            storage.get("RootState", "", "adminPasswordHash")
-                ?: saltedHash(servletConfig.getInitParameter("initialAdminPassword"))
+            stateCipher = AesGcmCipher(messageEncryptionKey)
+            adminPasswordHash =
+                // Don't write initial password hash in the storage
+                storage.get("adminPasswordHash")
+                    ?: saltedHash(servletConfig.getInitParameter("initialAdminPassword"))
         }
         // Use notifications from FlowServlet (it must be initialized before AdminServlet)
         return environmentFor(FlowServlet::class)!!.getInterface(FlowNotifications::class)
@@ -173,12 +180,12 @@ class AdminServlet : BaseHttpServlet() {
                 }
                 val hash = saltedHash(password)
                 adminPasswordHash = hash
-                val storage = environment.getInterface(Storage::class)!!
                 runBlocking {
-                    if (storage.get("RootState", "", "adminPasswordHash") == null) {
-                        storage.insert("RootState", "", hash,"adminPasswordHash")
+                    val storage = environment.getTable(rootStateTableSpec)
+                    if (storage.get("adminPasswordHash") == null) {
+                        storage.insert(key = "adminPasswordHash", data = hash)
                     } else {
-                        storage.update("RootState", "", "adminPasswordHash", hash)
+                        storage.update(key = "adminPasswordHash", data = hash)
                     }
                 }
                 updateAdminPasswordHash(hash)
@@ -210,15 +217,15 @@ class AdminServlet : BaseHttpServlet() {
                 val clientId = if (clientIds == null) "" else clientIds[0]!!
                 resp.contentType = "text/html; charset=utf-8"
                 val writer = resp.outputStream.writer(Charset.forName("utf-8"))
-                val storage = environment.getInterface(Storage::class)!!
                 writer.write(TABLE_HEAD)
                 writer.write("<tr><th>Id</th><th>Display Name</th></tr>")
                 runBlocking {
-                    val documentIds = storage.enumerate("IssuerDocument", clientId)
+                    val storage = environment.getTable(IssuingAuthorityState.documentTableSpec)
+                    val documentIds = storage.enumerate(partitionId = clientId)
                     for (documentId in documentIds) {
                         writer.write("<tr>")
                         writer.write("<td class='code'>${documentId.htmlEscape()}</td>")
-                        val documentData = storage.get("IssuerDocument", clientId, documentId)!!
+                        val documentData = storage.get(partitionId = clientId, key = documentId)!!
                         val document = IssuerDocument.fromDataItem(Cbor.decode(documentData.toByteArray()))
                         writer.write("<td>${document.documentConfiguration?.displayName?.htmlEscape()}</td>")
                         writer.write("<tr>")
@@ -230,10 +237,10 @@ class AdminServlet : BaseHttpServlet() {
             "clients.html" -> {
                 resp.contentType = "text/html; charset=utf-8"
                 val writer = resp.outputStream.writer(Charset.forName("utf-8"))
-                val storage = environment.getInterface(Storage::class)!!
                 writer.write(LIST_HEAD)
                 runBlocking {
-                    val clients = storage.enumerate("ClientKeys", "")
+                    val storage = environment.getTable(AuthenticationState.clientTableSpec)
+                    val clients = storage.enumerate()
                     for (client in clients) {
                         val escaped = client.htmlEscape()
                         val urlenc = URLEncoder.encode(client, "utf-8")

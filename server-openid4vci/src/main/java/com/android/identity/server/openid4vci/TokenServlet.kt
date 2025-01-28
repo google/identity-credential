@@ -3,7 +3,7 @@ package com.android.identity.server.openid4vci
 import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.Crypto
 import com.android.identity.flow.handler.InvalidRequestException
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.util.toBase64Url
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -43,9 +43,9 @@ class TokenServlet : BaseServlet() {
             else -> throw InvalidRequestException("invalid parameter 'grant_type'")
 
         }
-        val storage = environment.getInterface(Storage::class)!!
         val state = runBlocking {
-            IssuanceState.fromCbor(storage.get("IssuanceState", "", id)!!.toByteArray())
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            IssuanceState.fromCbor(storage.get(id)!!.toByteArray())
         }
         if (digest != null) {
             if (state.codeChallenge == digest) {
@@ -62,7 +62,8 @@ class TokenServlet : BaseServlet() {
         state.redirectUri = null
         state.cNonce = ByteString(cNonce)
         runBlocking {
-            storage.update("IssuanceState", "", id, ByteString(state.toCbor()))
+            val storage = environment.getTable(IssuanceState.tableSpec)
+            storage.update(id, ByteString(state.toCbor()))
         }
         val expiresIn = 60.minutes
         val accessToken = idToCode(OpaqueIdType.ACCESS_TOKEN, id, expiresIn)

@@ -4,7 +4,7 @@ import com.android.identity.flow.handler.FlowNotifications
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.FlowEnvironment
 import com.android.identity.flow.server.Resources
-import com.android.identity.flow.server.Storage
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.LandingUrlNotification
 import com.android.identity.issuance.wallet.ApplicationSupportState
 import com.android.identity.issuance.wallet.LandingRecord
@@ -45,15 +45,15 @@ class LandingServlet: BaseHttpServlet() {
             return
         }
         val id = rawPath.substring(1)
-        val storage = environment.getInterface(Storage::class)!!
         runBlocking {
-            val recordData = storage.get("Landing", "", id)
+            val storage = environment.getTable(ApplicationSupportState.landingTableSpec)
+            val recordData = storage.get(id)
             if (recordData == null) {
                 resp.sendError(404)
             } else {
                 val record = LandingRecord.fromCbor(recordData.toByteArray())
                 record.resolved = req.queryString ?: ""
-                storage.update("Landing", "", id, ByteString(record.toCbor()))
+                storage.update(id, ByteString(record.toCbor()))
                 val configuration = environment.getInterface(Configuration::class)!!
                 val baseUrl = configuration.getValue("base_url")
                 val landingUrl = "$baseUrl/${ApplicationSupportState.URL_PREFIX}$id"

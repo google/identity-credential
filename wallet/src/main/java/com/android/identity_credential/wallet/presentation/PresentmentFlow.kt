@@ -46,7 +46,7 @@ private suspend fun showPresentmentFlowImpl(
     document: ConsentDocument,
     relyingParty: ConsentRelyingParty,
     credential: Credential,
-    signAndGenerate: (KeyUnlockData?) -> ByteArray
+    signAndGenerate: suspend (KeyUnlockData?) -> ByteArray
 ): ByteArray {
     // always show the Consent Prompt first
     showConsentPrompt(
@@ -157,7 +157,7 @@ private suspend fun showPresentmentFlowImpl(
                             }
                             remainingPassphraseAttempts--
 
-                            val constraints = (secureAreaBoundCredential.secureArea as CloudSecureArea).passphraseConstraints
+                            val constraints = (secureAreaBoundCredential.secureArea as CloudSecureArea).getPassphraseConstraints()
                             val title =
                                 if (constraints.requireNumerical)
                                     activity.resources.getString(R.string.passphrase_prompt_csa_pin_title)
@@ -276,32 +276,34 @@ suspend fun showSdJwtPresentmentFlow(
     }
 }
 
-private fun mdocSignAndGenerate(
+private suspend fun mdocSignAndGenerate(
     consentFields: List<ConsentField>,
     credential: SecureAreaBoundCredential,
     encodedSessionTranscript: ByteArray,
     keyUnlockData: KeyUnlockData?
 ): ByteArray {
-    // create the document generator for the suitable Document (of DocumentRequest)
-    val documentGenerator =
-        createDocumentGenerator(
-            consentFields = consentFields,
-            document = credential.document,
-            credential = credential,
-            sessionTranscript = encodedSessionTranscript
+    return credential.document.withLock {
+        // create the document generator for the suitable Document (of DocumentRequest)
+        val documentGenerator =
+            createDocumentGenerator(
+                consentFields = consentFields,
+                document = credential.document,
+                credential = credential,
+                sessionTranscript = encodedSessionTranscript
+            )
+        // try signing the data of the document (or KeyLockedException is thrown)
+        documentGenerator.setDeviceNamespacesSignature(
+            NameSpacedData.Builder().build(),
+            credential.secureArea,
+            credential.alias,
+            keyUnlockData,
+            Algorithm.ES256
         )
-    // try signing the data of the document (or KeyLockedException is thrown)
-    documentGenerator.setDeviceNamespacesSignature(
-        NameSpacedData.Builder().build(),
-        credential.secureArea,
-        credential.alias,
-        keyUnlockData,
-        Algorithm.ES256
-    )
-    // increment the credential's usage count since it just finished signing the data successfully
-    credential.increaseUsageCount()
-    // finally add the document to the response generator and generate the bytes
-    return documentGenerator.generate()
+        // increment the credential's usage count since it just finished signing the data successfully
+        credential.increaseUsageCount()
+        // finally add the document to the response generator and generate the bytes
+        documentGenerator.generate()
+    }
 }
 
 private fun createDocumentGenerator(

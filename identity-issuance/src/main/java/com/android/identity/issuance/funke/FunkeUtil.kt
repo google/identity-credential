@@ -7,6 +7,7 @@ import com.android.identity.issuance.IssuingAuthorityException
 import com.android.identity.securearea.CreateKeySettings
 import com.android.identity.securearea.KeyInfo
 import com.android.identity.securearea.SecureArea
+import com.android.identity.securearea.SecureAreaProvider
 import com.android.identity.util.Logger
 import com.android.identity.util.toBase64Url
 import io.ktor.client.HttpClient
@@ -28,7 +29,7 @@ internal object FunkeUtil {
     private val keyCreationMutex = Mutex()
 
     suspend fun communicationKey(env: FlowEnvironment, clientId: String): KeyInfo {
-        val secureArea = env.getInterface(SecureArea::class)!!
+        val secureArea = env.getInterface(SecureAreaProvider::class)!!.get()
         val alias = "FunkeComm_" + clientId
         return try {
             secureArea.getKeyInfo(alias)
@@ -44,8 +45,8 @@ internal object FunkeUtil {
         }
     }
 
-    fun communicationSign(env: FlowEnvironment, clientId: String, message: ByteArray): ByteArray {
-        val secureArea = env.getInterface(SecureArea::class)!!
+    suspend fun communicationSign(env: FlowEnvironment, clientId: String, message: ByteArray): ByteArray {
+        val secureArea = env.getInterface(SecureAreaProvider::class)!!.get()
         val alias = "FunkeComm_" + clientId
         val sig = secureArea.sign(alias, Algorithm.ES256, message, null)
         return sig.toCoseEncoded()

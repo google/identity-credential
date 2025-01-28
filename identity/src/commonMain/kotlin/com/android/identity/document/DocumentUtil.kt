@@ -53,10 +53,10 @@ object DocumentUtil {
      * @param dryRun don't actually create the credentials, just return how many would be created.
      * @return the number of credentials created.
      */
-    fun managedCredentialHelper(
+    suspend fun managedCredentialHelper(
         document: Document,
         domain: String,
-        createCredential: ((credentialToReplace: Credential?) -> Credential)?,
+        createCredential: (suspend (credentialToReplace: Credential?) -> Credential)?,
         now: Instant,
         numCredentials: Int,
         maxUsesPerCredential: Int,

@@ -37,6 +37,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -54,6 +55,7 @@ import com.android.identity.crypto.Algorithm
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.util.Constants
 import com.android.identity.util.Logger
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 
 class PresentationActivity : ComponentActivity() {
@@ -88,6 +90,7 @@ class PresentationActivity : ComponentActivity() {
             IdentityCredentialTheme {
 
                 var stateDisplay = remember { mutableStateOf("Idle") }
+                val coroutineScope = rememberCoroutineScope()
 
                 transferHelper.getState().observe(this as LifecycleOwner) { state ->
                     when (state) {
@@ -111,7 +114,9 @@ class PresentationActivity : ComponentActivity() {
                         TransferHelper.State.REQUEST_AVAILABLE -> {
                             stateDisplay.value = "Request Available"
                             Logger.i(TAG, "State: Request Available")
-                            processRequest()
+                            coroutineScope.launch {
+                                processRequest()
+                            }
                         }
                         TransferHelper.State.RESPONSE_SENT -> {
                             stateDisplay.value = "Response Sent"
@@ -249,38 +254,47 @@ class PresentationActivity : ComponentActivity() {
 
     }
 
-    private fun processRequest() {
+    private suspend fun processRequest() {
         val request = DeviceRequestParser(
             transferHelper.getDeviceRequest(),
             transferHelper.getSessionTranscript()
         ).parse()
         val docRequest = request.docRequests[0]
-        val documentRequest = MdocUtil.generateDocumentRequest(docRequest!!)
+        val documentRequest = MdocUtil.generateDocumentRequest(docRequest)
         val now = Clock.System.now()
-        val document = transferHelper.documentStore.lookupDocument(MainActivity.CREDENTIAL_ID)!!
-        val credential = document.findCredential(MainActivity.AUTH_KEY_DOMAIN, now) as MdocCredential
 
-        val staticAuthData = StaticAuthDataParser(credential.issuerProvidedData).parse()
-        val mergedIssuerNamespaces = MdocUtil.mergeIssuerNamesSpaces(
-            documentRequest,
-            document.applicationData.getNameSpacedData("documentData"),
-            staticAuthData
-        )
+        val encodedDeviceResponse = transferHelper.documentStore.withLock {
+            val document = transferHelper.documentStore.lookupDocument(MainActivity.CREDENTIAL_ID)!!
+            val credential =
+                document.findCredential(MainActivity.AUTH_KEY_DOMAIN, now) as MdocCredential
 
-        val deviceResponseGenerator = DeviceResponseGenerator(Constants.DEVICE_RESPONSE_STATUS_OK)
-        deviceResponseGenerator.addDocument(
-            DocumentGenerator(MainActivity.MDL_DOCTYPE, staticAuthData.issuerAuth, transferHelper.getSessionTranscript())
-                .setIssuerNamespaces(mergedIssuerNamespaces)
-                .setDeviceNamespacesSignature(
-                    NameSpacedData.Builder().build(),
-                    credential.secureArea,
-                    credential.alias,
-                    null,
-                    Algorithm.ES256
+            val staticAuthData = StaticAuthDataParser(credential.issuerProvidedData).parse()
+            val mergedIssuerNamespaces = MdocUtil.mergeIssuerNamesSpaces(
+                documentRequest,
+                document.applicationData.getNameSpacedData("documentData"),
+                staticAuthData
+            )
+
+            val deviceResponseGenerator =
+                DeviceResponseGenerator(Constants.DEVICE_RESPONSE_STATUS_OK)
+            deviceResponseGenerator.addDocument(
+                DocumentGenerator(
+                    MainActivity.MDL_DOCTYPE,
+                    staticAuthData.issuerAuth,
+                    transferHelper.getSessionTranscript()
                 )
-                .generate()
-        )
-        val encodedDeviceResponse = deviceResponseGenerator.generate()
+                    .setIssuerNamespaces(mergedIssuerNamespaces)
+                    .setDeviceNamespacesSignature(
+                        NameSpacedData.Builder().build(),
+                        credential.secureArea,
+                        credential.alias,
+                        null,
+                        Algorithm.ES256
+                    )
+                    .generate()
+            )
+            deviceResponseGenerator.generate()
+        }
         transferHelper.sendResponse(encodedDeviceResponse)
     }
 }

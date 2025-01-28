@@ -168,8 +168,10 @@ fun DocumentInfoScreen(
                 Button(
                     onClick = {
                         showDeleteConfirmationDialog = false
-                        documentModel.deleteCard(documentInfo)
-                        onNavigate(WalletDestination.PopBackStack.route)
+                        coroutineScope.launch {
+                            documentModel.deleteCard(documentInfo)
+                            onNavigate(WalletDestination.PopBackStack.route)
+                        }
                     }) {
                     Text(stringResource(R.string.document_info_screen_confirm_deletion_confirm_button))
                 }

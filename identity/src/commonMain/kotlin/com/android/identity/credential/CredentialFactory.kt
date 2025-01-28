@@ -29,7 +29,7 @@ import kotlin.reflect.KClass
  */
 class CredentialFactory {
     private val createCredentialFunctions:
-            MutableMap<String, (Document, DataItem) -> Credential> = mutableMapOf()
+            MutableMap<String, suspend (Document, DataItem) -> Credential> = mutableMapOf()
 
     /**
      * Add a new [Credential] implementation to the repository.
@@ -39,7 +39,7 @@ class CredentialFactory {
      */
     fun addCredentialImplementation(
         credentialType: KClass<out Credential>,
-        createCredentialFunction: (Document, DataItem) -> Credential
+        createCredentialFunction: suspend (Document, DataItem) -> Credential
     ) = createCredentialFunctions.put(credentialType.simpleName!!, createCredentialFunction)
 
     /**
@@ -50,12 +50,11 @@ class CredentialFactory {
      * @return a credential instance
      * @throws IllegalStateException if there is no registered type for the serialized data.
      */
-    fun createCredential(document: Document, dataItem: DataItem): Credential {
+    suspend fun createCredential(document: Document, dataItem: DataItem): Credential {
+        document.checkLocked()
         val credentialType = dataItem["credentialType"].asTstr
-        val createCredentialFunction = createCredentialFunctions.get(credentialType)
-        if (createCredentialFunction == null) {
-            throw IllegalStateException("Credential type $credentialType not registered")
-        }
+        val createCredentialFunction = createCredentialFunctions[credentialType]
+            ?: throw IllegalStateException("Credential type $credentialType not registered")
         return createCredentialFunction.invoke(document, dataItem)
     }
 }

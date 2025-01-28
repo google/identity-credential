@@ -15,51 +15,60 @@
  */
 package com.android.identity.storage
 
+import com.android.identity.storage.ephemeral.EphemeralStorage
+import kotlinx.coroutines.test.runTest
+import kotlinx.io.bytestring.ByteString
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class EphemeralStorageTest {
-    @Test
-    fun testStorageImplementation() {
-        val storage = EphemeralStorageEngine()
-        assertEquals(0, storage.enumerate().size.toLong())
-        assertNull(storage["foo"])
-
-        val data = byteArrayOf(1, 2, 3)
-        storage.put("foo", data)
-        assertContentEquals(storage["foo"], data)
-        assertEquals(1, storage.enumerate().size.toLong())
-        assertEquals("foo", storage.enumerate().iterator().next())
-        assertNull(storage["bar"])
-
-        val data2 = byteArrayOf(4, 5, 6)
-        storage.put("bar", data2)
-        assertContentEquals(storage["bar"], data2)
-        assertEquals(2, storage.enumerate().size.toLong())
-        storage.delete("foo")
-        assertNull(storage["foo"])
-        assertNotNull(storage["bar"])
-        assertEquals(1, storage.enumerate().size.toLong())
-        storage.delete("bar")
-        assertNull(storage["bar"])
-        assertEquals(0, storage.enumerate().size.toLong())
+    companion object {
+        val tableSpec = StorageTableSpec("test", false, false)
     }
 
     @Test
-    fun testPersistence() {
-        var storage: StorageEngine = EphemeralStorageEngine()
-        assertEquals(0, storage.enumerate().size.toLong())
-        assertNull(storage["foo"])
-        val data = byteArrayOf(1, 2, 3)
-        storage.put("foo", data)
-        assertContentEquals(storage["foo"], data)
+    fun testStorageImplementation() = runTest {
+        val storage = EphemeralStorage()
+        val table = storage.getTable(tableSpec)
+        assertEquals(0, table.enumerate().size)
+        assertNull(table.get("foo"))
 
-        // Create a new StorageEngine instance and check that data is no longer there...
-        storage = EphemeralStorageEngine()
-        assertEquals(0, storage.enumerate().size.toLong())
-        assertNull(storage["foo"])
+        val data = ByteString(byteArrayOf(1, 2, 3))
+        table.insert("foo", data)
+        assertEquals(table.get("foo"), data)
+        assertEquals(1, table.enumerate().size.toLong())
+        assertEquals("foo", table.enumerate().iterator().next())
+        assertNull(table.get("bar"))
+
+        val data2 = ByteString(byteArrayOf(4, 5, 6))
+        table.insert("bar", data2)
+        assertEquals(table.get("bar"), data2)
+        assertEquals(2, table.enumerate().size.toLong())
+        table.delete("foo")
+        assertNull(table.get("foo"))
+        assertNotNull(table.get("bar"))
+        assertEquals(1, table.enumerate().size.toLong())
+        table.delete("bar")
+        assertNull(table.get("bar"))
+        assertEquals(0, table.enumerate().size.toLong())
+    }
+
+    @Test
+    fun testPersistence() = runTest {
+        var storage = EphemeralStorage()
+        var table = storage.getTable(tableSpec)
+        assertEquals(0, table.enumerate().size.toLong())
+        assertNull(table.get("foo"))
+        val data = ByteString(byteArrayOf(1, 2, 3))
+        table.insert("foo", data)
+
+        storage = EphemeralStorage.deserialize(storage.serialize())
+
+        table = storage.getTable(tableSpec)
+        assertEquals(1, table.enumerate().size.toLong())
+        assertEquals("foo", table.enumerate().iterator().next())
+        assertEquals(data, table.get("foo"))
     }
 }

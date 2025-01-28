@@ -30,6 +30,10 @@ import com.android.identity.android.util.NfcUtil
 import com.android.identity.crypto.Crypto
 import com.android.identity.crypto.EcCurve
 import com.android.identity.util.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 class NfcEngagementHandler : HostApduService() {
     companion object {
@@ -121,9 +125,14 @@ class NfcEngagementHandler : HostApduService() {
 
         if (engagementHelper == null) {
             val application: WalletApplication = application as WalletApplication
-            if (application.documentStore.listDocuments().size > 0
-                && !PresentationActivity.isPresentationActive()) {
-
+            // TODO: how to avoid this? Need to create non-blocking way to determine if there
+            // are any documents in the documentStore
+            val hasDocuments = runBlocking {
+                application.documentStore.withLock {
+                    application.documentStore.listDocuments().isNotEmpty()
+                }
+            }
+            if (hasDocuments && !PresentationActivity.isPresentationActive()) {
                 PresentationActivity.engagementDetected(application.applicationContext)
 
                 val walletApplication = application as WalletApplication

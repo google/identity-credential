@@ -21,12 +21,17 @@ import com.android.identity.credential.Credential
 import com.android.identity.credential.CredentialFactory
 import com.android.identity.securearea.SecureArea
 import com.android.identity.securearea.SecureAreaRepository
+import com.android.identity.storage.NoRecordStorageException
 import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.StorageTable
 import com.android.identity.util.ApplicationData
 import com.android.identity.util.Logger
 import com.android.identity.util.SimpleApplicationData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.io.bytestring.ByteString
 
 /**
  * This class represents a document created in [DocumentStore].
@@ -80,6 +85,12 @@ import kotlinx.datetime.Instant
  * There is nothing mDL/MDOC specific about this type, it can be used for any kind
  * of document regardless of format, presentation, or issuance protocol used.
  *
+ * Most [DocumentStore], [Document], and [Credential] APIs require caller to first
+ * obtain a [DocumentStore] lock by running the code that accesses these APIs inside
+ * [DocumentStore.withLock] (or a convenience shortcut [Document.withLock]). Note that
+ * there is a single lock for all documents and credentials in a [DocumentStore]
+ * instance and only a single coroutine can hold the lock at the same time.
+ *
  * @param name the name of the document which can be used with [DocumentStore].
  * @param storageEngine the [StorageEngine] to use for storing/retrieving documents.
  * @param secureAreaRepository the repository of configured [SecureArea] that can
@@ -90,17 +101,25 @@ import kotlinx.datetime.Instant
  */
 class Document private constructor(
     val name: String,
-    private val storageEngine: StorageEngine,
+    private val storageTable: StorageTable,
     val secureAreaRepository: SecureAreaRepository,
     private val store: DocumentStore,
     private val credentialFactory: CredentialFactory
 ) {
     private var addedToStore = false
+    private var deleted = false
 
-    internal fun addToStore() {
+    internal suspend fun addToStore() {
+        checkLocked()
         addedToStore = true
-        saveDocument()
+        saveDocument(true)
     }
+
+    /**
+     * Convenience method to call [DocumentStore.withLock] for the [DocumentStore]
+     * that this document came from.
+     */
+    suspend fun<T> withLock(block: suspend () -> T): T = store.withLock(block)
 
     /**
      * Application specific data.
@@ -109,9 +128,12 @@ class Document private constructor(
      * with the credential. Setters and associated getters are
      * enumerated in the [ApplicationData] interface.
      */
-    private var _applicationData = SimpleApplicationData { saveDocument() }
+    private var _applicationData = SimpleApplicationData { requestSave() }
     val applicationData: ApplicationData
-        get() = _applicationData
+        get() {
+            checkLocked()
+            return _applicationData
+        }
 
     /**
      * Credentials which still need to be certified
@@ -119,7 +141,10 @@ class Document private constructor(
     private var _pendingCredentials = mutableListOf<Credential>()
     val pendingCredentials: List<Credential>
         // Return shallow copy b/c backing field may get modified if certify() or delete() is called.
-        get() = _pendingCredentials.toList()
+        get() {
+            checkLocked()
+            return _pendingCredentials.toList()
+        }
 
     /**
      * Certified credentials.
@@ -127,7 +152,10 @@ class Document private constructor(
     private var _certifiedCredentials = mutableListOf<Credential>()
     val certifiedCredentials: List<Credential>
         // Return shallow copy b/c backing field may get modified if certify() or delete() is called.
-        get() = _certifiedCredentials.toList()
+        get() {
+            checkLocked()
+            return _certifiedCredentials.toList()
+        }
 
     /**
      * Credential counter.
@@ -137,7 +165,34 @@ class Document private constructor(
     var credentialCounter: Long = 0
         private set
 
-    internal fun saveDocument() {
+    fun checkLocked() {
+        store.checkLocked()
+    }
+
+    internal fun requestSave() {
+        if (!addedToStore) {
+            return
+        }
+        // TODO: batch it a bit
+        store.coroutineScope.launch {
+            store.withLock {
+                try {
+                    saveDocument(false)
+                } catch (err: NoRecordStorageException) {
+                    // Document was removed or never added to the store?
+                    if (deleted || !addedToStore) {
+                        Logger.i(TAG,
+                            "Attempt to save a document '$name' that was not added to the store or was deleted")
+                    } else {
+                        Logger.e(TAG, "Consistency error: document '$name' does not exist anymore")
+                    }
+                }
+            }
+        }
+    }
+
+    internal suspend fun saveDocument(initialSave: Boolean) {
+        checkLocked()
         if (!addedToStore) {
             return
         }
@@ -154,7 +209,12 @@ class Document private constructor(
             }
             put("credentialCounter", credentialCounter)
         }
-        storageEngine.put(DOCUMENT_PREFIX + name, Cbor.encode(mapBuilder.end().build()))
+        val bytes = ByteString(Cbor.encode(mapBuilder.end().build()))
+        if (initialSave) {
+            storageTable.insert(name, bytes)
+        } else {
+            storageTable.update(name, bytes)
+        }
         val t1 = Clock.System.now()
 
         // Saving a document is a costly affair (often more than 100ms) so log when we're doing
@@ -163,16 +223,19 @@ class Document private constructor(
         // credentials.
         val durationMillis = t1.toEpochMilliseconds() - t0.toEpochMilliseconds()
         Logger.i(TAG, "Saved document '$name' to disk in $durationMillis msec")
-        store.emitOnDocumentChanged(this)
+        if (!initialSave) {
+            store.emitOnDocumentChanged(this)
+        }
     }
 
-    private fun loadDocument(): Boolean {
-        val data = storageEngine[DOCUMENT_PREFIX + name] ?: return false
-        val map = Cbor.decode(data)
+    private suspend fun loadDocument(): Boolean {
+        checkLocked()
+        val data = storageTable.get(name) ?: return false
+        val map = Cbor.decode(data.toByteArray())
 
         _applicationData = SimpleApplicationData
             .decodeFromCbor(map["applicationData"].asBstr) {
-                saveDocument()
+                requestSave()
             }
 
         _pendingCredentials = ArrayList()
@@ -188,10 +251,12 @@ class Document private constructor(
         return true
     }
 
-    internal fun deleteDocument() {
+    internal suspend fun deleteDocument() {
+        checkLocked()
         _pendingCredentials.clear()
         _certifiedCredentials.clear()
-        storageEngine.delete(DOCUMENT_PREFIX + name)
+        storageTable.delete(name)
+        deleted = true
     }
 
     /**
@@ -206,6 +271,7 @@ class Document private constructor(
         domain: String,
         now: Instant?
     ): Credential? {
+        checkLocked()
         var candidate: Credential? = null
         _certifiedCredentials.filter {
             it.domain == domain && (
@@ -229,6 +295,7 @@ class Document private constructor(
     internal fun addCredential(
         credential: Credential,
     ) : Long {
+        checkLocked()
         val assignedCounter = credentialCounter++
         _pendingCredentials.add(credential)
         return assignedCounter
@@ -237,7 +304,8 @@ class Document private constructor(
     /**
      * Goes through all credentials and deletes the ones which are invalidated.
      */
-    fun deleteInvalidatedCredentials() {
+    suspend fun deleteInvalidatedCredentials() {
+        checkLocked()
         for (pendingCredential in pendingCredentials) {
             deleteIfInvalidated(pendingCredential, "pending credential")
         }
@@ -246,9 +314,10 @@ class Document private constructor(
         }
     }
 
-    private fun deleteIfInvalidated(credential: Credential, credentialType: String = "credential") {
+    private suspend fun deleteIfInvalidated(credential: Credential, credentialType: String = "credential") {
+        checkLocked()
         try {
-            if (credential.isInvalidated) {
+            if (credential.isInvalidated()) {
                 Logger.i(TAG, "Deleting invalidated $credentialType ${credential.identifier}")
                 credential.delete()
             }
@@ -269,6 +338,7 @@ class Document private constructor(
      * @returns `true` if an usable credential exists for the given time, `false` otherwise
      */
     fun hasUsableCredential(at: Instant = Clock.System.now()): Boolean {
+        checkLocked()
         val credentials = certifiedCredentials
         if (credentials.isEmpty()) {
             return false
@@ -293,6 +363,7 @@ class Document private constructor(
      * @returns `true` if an usable credential exists for the given time, `false` otherwise
      */
     fun countUsableCredentials(at: Instant = Clock.System.now()): UsableCredentialResult {
+        checkLocked()
         val credentials = certifiedCredentials
         if (credentials.isEmpty()) {
             return UsableCredentialResult(0, 0)
@@ -312,7 +383,8 @@ class Document private constructor(
         return UsableCredentialResult(numCredentials, numCredentialsAvailable)
     }
 
-    internal fun removeCredential(credential: Credential) {
+    internal suspend fun removeCredential(credential: Credential) {
+        checkLocked()
         val listToModify = if (credential.isCertified) _certifiedCredentials
             else _pendingCredentials
         check(listToModify.remove(credential)) { "Error removing credential" }
@@ -334,7 +406,7 @@ class Document private constructor(
                 }
             }
         }
-        saveDocument()
+        saveDocument(false)
     }
 
     /**
@@ -342,39 +414,41 @@ class Document private constructor(
      *
      * @param credential The credential to certify.
      */
-    internal fun certifyPendingCredential(
+    internal suspend fun certifyPendingCredential(
         credential: Credential
     ): Credential {
+        checkLocked()
         check(_pendingCredentials.remove(credential)) { "Error removing credential from pending list" }
         _certifiedCredentials.add(credential)
-        saveDocument()
+        saveDocument(false)
         return credential
     }
 
     companion object {
         private const val TAG = "Document"
-        internal const val DOCUMENT_PREFIX = "IC_Document_"
-        internal const val AUTHENTICATION_KEY_ALIAS_PREFIX = "IC_Credential_"
 
         // Called by DocumentStore.createDocument().
-        internal fun create(
-            storageEngine: StorageEngine,
+        internal suspend fun create(
+            storageTable: StorageTable,
             secureAreaRepository: SecureAreaRepository,
             name: String,
             store: DocumentStore,
             credentialFactory: CredentialFactory
         ): Document =
-            Document(name, storageEngine, secureAreaRepository, store, credentialFactory).apply { saveDocument() }
+            Document(name, storageTable, secureAreaRepository, store, credentialFactory).apply {
+                saveDocument(true)
+            }
 
         // Called by DocumentStore.lookupDocument().
-        internal fun lookup(
-            storageEngine: StorageEngine,
+        internal suspend fun lookup(
+            storageTable: StorageTable,
             secureAreaRepository: SecureAreaRepository,
             name: String,
             store: DocumentStore,
             credentialFactory: CredentialFactory
-        ): Document? = Document(name, storageEngine, secureAreaRepository, store, credentialFactory).run {
+        ): Document? = Document(name, storageTable, secureAreaRepository, store, credentialFactory).run {
             try {
+                checkLocked()
                 if (!loadDocument()) {
                     return null
                 }

@@ -33,7 +33,6 @@ import com.android.identity.flow.annotation.FlowMethod
 import com.android.identity.flow.annotation.FlowState
 import com.android.identity.flow.server.Configuration
 import com.android.identity.flow.server.Resources
-import com.android.identity.flow.server.Storage
 import com.android.identity.flow.server.FlowEnvironment
 import com.android.identity.issuance.CredentialData
 import com.android.identity.issuance.CredentialFormat
@@ -49,7 +48,8 @@ import com.android.identity.issuance.SdJwtVcDocumentConfiguration
 import com.android.identity.issuance.WalletApplicationCapabilities
 import com.android.identity.issuance.WalletServerSettings
 import com.android.identity.issuance.common.AbstractIssuingAuthorityState
-import com.android.identity.issuance.common.cache
+import com.android.identity.flow.cache
+import com.android.identity.flow.server.getTable
 import com.android.identity.issuance.evidence.EvidenceResponse
 import com.android.identity.issuance.evidence.EvidenceResponseGermanEidResolved
 import com.android.identity.issuance.evidence.EvidenceResponseIcaoNfcTunnelResult
@@ -57,6 +57,7 @@ import com.android.identity.issuance.evidence.EvidenceResponseIcaoPassiveAuthent
 import com.android.identity.issuance.evidence.EvidenceResponseQuestionMultipleChoice
 import com.android.identity.issuance.fromCbor
 import com.android.identity.issuance.proofing.defaultCredentialConfiguration
+import com.android.identity.issuance.wallet.AuthenticationState
 import com.android.identity.mdoc.mso.MobileSecurityObjectGenerator
 import com.android.identity.mdoc.mso.StaticAuthDataGenerator
 import com.android.identity.mdoc.util.MdocUtil
@@ -65,6 +66,7 @@ import com.android.identity.mrtd.MrtdNfcDataDecoder
 import com.android.identity.sdjwt.Issuer
 import com.android.identity.sdjwt.SdJwtVcGenerator
 import com.android.identity.sdjwt.util.JsonWebKey
+import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.Logger
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
@@ -163,6 +165,12 @@ class IssuingAuthorityState(
             addDocumentType(EUPersonalID.getDocumentType())
             addDocumentType(PhotoID.getDocumentType())
         }
+
+        val documentTableSpec = StorageTableSpec(
+            name = "HardcodedIssuerDocument",
+            supportPartitions = true,
+            supportExpiration = false
+        )
     }
 
     @FlowMethod
@@ -273,16 +281,10 @@ class IssuingAuthorityState(
         val issuerDocument = loadIssuerDocument(env, documentId)
         check(issuerDocument.state == DocumentCondition.READY)
 
-        val storage = env.getInterface(Storage::class)!!
-        val walletApplicationCapabilities = runBlocking {
-            storage.get(
-                "WalletApplicationCapabilities",
-                "",
-                clientId
-            )?.let {
+        val storage = env.getTable(AuthenticationState.walletAppCapabilitiesTableSpec)
+        val walletApplicationCapabilities = storage.get(clientId)?.let {
                 WalletApplicationCapabilities.fromCbor(it.toByteArray())
             } ?: throw IllegalStateException("WalletApplicationCapabilities not found")
-        }
 
         val credentialConfiguration = defaultCredentialConfiguration(
             documentId,
@@ -1153,24 +1155,19 @@ class IssuingAuthorityState(
         if (clientId.isEmpty()) {
             throw IllegalStateException("Client not authenticated")
         }
-        val storage = env.getInterface(Storage::class)!!
-        val encodedCbor = storage.get("IssuerDocument", clientId, documentId)
-        if (encodedCbor != null) {
-            return true
-        }
-        return false
+        val storage = env.getTable(documentTableSpec)
+        val encodedCbor = storage.get(partitionId = clientId, key = documentId)
+        return encodedCbor != null
     }
 
     private suspend fun loadIssuerDocument(env: FlowEnvironment, documentId: String): IssuerDocument {
         if (clientId.isEmpty()) {
             throw IllegalStateException("Client not authenticated")
         }
-        val storage = env.getInterface(Storage::class)!!
-        val encodedCbor = storage.get("IssuerDocument", clientId, documentId)
+        val storage = env.getTable(documentTableSpec)
+        val encodedCbor = storage.get(partitionId = clientId, key = documentId)
         if (encodedCbor == null) {
-            // TODO: We need to figure out if we need to support throwing exceptions across
-            //  the network. For example we would throw UnknownDocumentException here if this
-            //  was supported by the Flow library/processor.
+            // TODO: replace with (new) UnknownDocumentException
             throw Error("No such document")
         }
         return IssuerDocument.fromDataItem(Cbor.decode(encodedCbor.toByteArray()))
@@ -1180,9 +1177,9 @@ class IssuingAuthorityState(
         if (clientId.isEmpty()) {
             throw IllegalStateException("Client not authenticated")
         }
-        val storage = env.getInterface(Storage::class)!!
+        val storage = env.getTable(documentTableSpec)
         val bytes = Cbor.encode(document.toDataItem())
-        return storage.insert("IssuerDocument", clientId, ByteString(bytes))
+        return storage.insert(partitionId = clientId, key = null, data = ByteString(bytes))
     }
 
     private suspend fun deleteIssuerDocument(env: FlowEnvironment,
@@ -1191,8 +1188,8 @@ class IssuingAuthorityState(
         if (clientId.isEmpty()) {
             throw IllegalStateException("Client not authenticated")
         }
-        val storage = env.getInterface(Storage::class)!!
-        storage.delete("IssuerDocument", clientId, documentId)
+        val storage = env.getTable(documentTableSpec)
+        storage.delete(partitionId = clientId, key = documentId)
         if (emitNotification) {
             emit(env, IssuingAuthorityNotification(documentId))
         }
@@ -1207,9 +1204,9 @@ class IssuingAuthorityState(
         if (clientId.isEmpty()) {
             throw IllegalStateException("Client not authenticated")
         }
-        val storage = env.getInterface(Storage::class)!!
+        val storage = env.getTable(documentTableSpec)
         val bytes = Cbor.encode(document.toDataItem())
-        storage.update("IssuerDocument", clientId, documentId, ByteString(bytes))
+        storage.update(partitionId = clientId, key = documentId, data = ByteString(bytes))
         if (emitNotification) {
             emit(env, IssuingAuthorityNotification(documentId))
         }

@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -32,6 +33,7 @@ import com.android.identity_credential.wallet.logging.EventLogger
 import com.android.identity_credential.wallet.navigation.WalletDestination
 import com.android.identity_credential.wallet.ui.KeyValuePairText
 import com.android.identity_credential.wallet.ui.ScreenWithAppBarAndBackButton
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -76,9 +78,13 @@ fun EventLogScreen(
     documentModel: DocumentModel,
     navController: NavHostController
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    // TODO: this needs a ViewModel layer
     val eventInfos = remember {
         mutableStateListOf<EventInfo>().apply {
-            addAll(documentModel.getEventInfos(documentId))
+            coroutineScope.launch {
+                addAll(documentModel.getEventInfos(documentId))
+            }
         }
     }
 
@@ -147,7 +153,15 @@ fun EventDetailsScreen(
     timestamp: String
 ) {
     // Retrieve the event based on documentId and timestamp
-    val eventInfos = remember { documentModel.getEventInfos(documentId) }
+    val coroutineScope = rememberCoroutineScope()
+    // TODO: this needs a ViewModel layer
+    val eventInfos = remember {
+        mutableStateListOf<EventInfo>().apply {
+            coroutineScope.launch {
+                addAll(documentModel.getEventInfos(documentId))
+            }
+        }
+    }
     val eventInfo = eventInfos.find { it.timestamp == timestamp }
 
     ScreenWithAppBarAndBackButton(

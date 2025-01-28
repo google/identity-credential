@@ -27,7 +27,6 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.android.identity.android.securearea.AndroidKeystoreSecureArea
 import com.android.identity.android.securearea.cloud.CloudSecureArea
-import com.android.identity.android.storage.AndroidStorageEngine
 import com.android.identity.credential.CredentialFactory
 import com.android.identity.document.Document
 import com.android.identity.document.DocumentStore
@@ -47,17 +46,19 @@ import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.vical.SignedVical
 import com.android.identity.sdjwt.credential.KeyBoundSdJwtVcCredential
 import com.android.identity.sdjwt.credential.KeylessSdJwtVcCredential
+import com.android.identity.securearea.SecureAreaProvider
 import com.android.identity.securearea.SecureAreaRepository
 import com.android.identity.securearea.software.SoftwareSecureArea
-import com.android.identity.storage.StorageEngine
+import com.android.identity.storage.Storage
+import com.android.identity.storage.android.AndroidStorage
 import com.android.identity.trustmanagement.TrustManager
 import com.android.identity.trustmanagement.TrustPoint
 import com.android.identity.util.Logger
 import com.android.identity_credential.wallet.logging.EventLogger
 import com.android.identity_credential.wallet.util.toByteArray
 import kotlinx.datetime.Clock
-import kotlinx.io.files.Path
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.io.File
 import java.net.URLDecoder
 import java.security.Security
 import java.util.concurrent.TimeUnit
@@ -104,7 +105,7 @@ class WalletApplication : Application() {
     }
 
     // late instantiations
-    lateinit var storageEngine: StorageEngine
+    lateinit var storage: Storage
     lateinit var documentTypeRepository: DocumentTypeRepository
     lateinit var secureAreaRepository: SecureAreaRepository
     lateinit var credentialFactory: CredentialFactory
@@ -113,8 +114,7 @@ class WalletApplication : Application() {
     lateinit var documentModel: DocumentModel
     lateinit var readerModel: ReaderModel
     lateinit var eventLogger: EventLogger
-    private lateinit var androidKeystoreSecureArea: AndroidKeystoreSecureArea
-    private lateinit var softwareSecureArea: SoftwareSecureArea
+    private lateinit var secureAreaProvider: SecureAreaProvider<AndroidKeystoreSecureArea>
     lateinit var walletServerProvider: WalletServerProvider
 
     override fun onCreate() {
@@ -141,28 +141,24 @@ class WalletApplication : Application() {
         documentTypeRepository.addDocumentType(UtopiaMovieTicket.getDocumentType())
 
         // init storage
-        val storageFile = Path(applicationContext.noBackupFilesDir.path, "identity.bin")
-        storageEngine = AndroidStorageEngine.Builder(applicationContext, storageFile).build()
+        val storageFile = File(applicationContext.noBackupFilesDir.path, "main.db")
+        storage = AndroidStorage(storageFile.absolutePath)
 
         // init EventLogger
-        eventLogger = EventLogger(storageEngine as AndroidStorageEngine)
+        eventLogger = EventLogger(storage)
 
         settingsModel = SettingsModel(this, sharedPreferences)
 
         // init AndroidKeyStoreSecureArea
-        androidKeystoreSecureArea = AndroidKeystoreSecureArea(applicationContext, storageEngine)
-
-        // init SoftwareSecureArea
-        softwareSecureArea = SoftwareSecureArea(storageEngine)
-        // TODO: generate and set attestation keys
+        secureAreaProvider = SecureAreaProvider {
+            AndroidKeystoreSecureArea.create(applicationContext, storage)
+        }
 
         // init SecureAreaRepository
-        secureAreaRepository = SecureAreaRepository()
-        secureAreaRepository.addImplementation(androidKeystoreSecureArea)
-        secureAreaRepository.addImplementation(softwareSecureArea)
-        secureAreaRepository.addImplementationFactory(
-            identifierPrefix = CloudSecureArea.IDENTIFIER_PREFIX,
-            factoryFunc = { identifier ->
+        secureAreaRepository = SecureAreaRepository.build {
+            add(SoftwareSecureArea.create(storage))
+            add(secureAreaProvider.get())
+            addFactory(CloudSecureArea.IDENTIFIER_PREFIX) { identifier ->
                 val queryString = identifier.substring(CloudSecureArea.IDENTIFIER_PREFIX.length + 1)
                 val params = queryString.split("&").map {
                     val parts = it.split("=", ignoreCase = false, limit = 2)
@@ -176,36 +172,34 @@ class WalletApplication : Application() {
                         givenUrl
                     }
                 Logger.i(TAG, "Creating CSA with url $cloudSecureAreaUrl for $identifier")
-                val cloudSecureArea = CloudSecureArea(
-                    applicationContext,
-                    storageEngine,
+                CloudSecureArea.create(
+                    storage,
                     identifier,
                     cloudSecureAreaUrl
                 )
-                return@addImplementationFactory cloudSecureArea
             }
-        )
+        }
 
         // init credentialFactory
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(MdocCredential::class) {
-            document, dataItem -> MdocCredential(document, dataItem)
+            document, dataItem -> MdocCredential(document).apply { deserialize(dataItem) }
         }
         credentialFactory.addCredentialImplementation(KeyBoundSdJwtVcCredential::class) {
-                document, dataItem -> KeyBoundSdJwtVcCredential(document, dataItem)
+            document, dataItem -> KeyBoundSdJwtVcCredential(document).apply { deserialize(dataItem) }
         }
         credentialFactory.addCredentialImplementation(KeylessSdJwtVcCredential::class) {
-                document, dataItem -> KeylessSdJwtVcCredential(document, dataItem)
+            document, dataItem -> KeylessSdJwtVcCredential(document).apply { deserialize(dataItem) }
         }
 
         // init documentStore
-        documentStore = DocumentStore(storageEngine, secureAreaRepository, credentialFactory)
+        documentStore = DocumentStore(storage, secureAreaRepository, credentialFactory)
 
         // init Wallet Server
         walletServerProvider = WalletServerProvider(
             this,
-            this.
-            androidKeystoreSecureArea,
+            storage,
+            secureAreaProvider,
             settingsModel
         ) {
             getWalletApplicationInformation()

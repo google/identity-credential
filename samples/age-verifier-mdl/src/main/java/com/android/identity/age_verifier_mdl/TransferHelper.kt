@@ -14,17 +14,16 @@ import com.android.identity.android.mdoc.transport.ConnectionMethodTcp
 import com.android.identity.android.mdoc.transport.ConnectionMethodUdp
 import com.android.identity.android.mdoc.transport.DataTransportOptions
 import com.android.identity.android.securearea.AndroidKeystoreSecureArea
-import com.android.identity.android.storage.AndroidStorageEngine
 import com.android.identity.mdoc.connectionmethod.ConnectionMethod
 import com.android.identity.mdoc.connectionmethod.ConnectionMethodBle
 import com.android.identity.mdoc.connectionmethod.ConnectionMethodNfc
 import com.android.identity.mdoc.connectionmethod.ConnectionMethodWifiAware
-import com.android.identity.storage.StorageEngine
+import com.android.identity.securearea.SecureAreaProvider
+import com.android.identity.storage.Storage
+import com.android.identity.storage.android.AndroidStorage
 import com.android.identity.util.Logger
 import com.android.identity.util.UUID
-import kotlinx.io.files.Path
 import java.io.File
-import java.util.OptionalLong
 
 class TransferHelper private constructor(
     private var context: Context,
@@ -58,8 +57,8 @@ class TransferHelper private constructor(
     }
 
     private var sharedPreferences: SharedPreferences
-    private var storageEngine: StorageEngine
-    var androidKeystoreSecureArea: AndroidKeystoreSecureArea
+    private var storage: Storage
+    var androidKeystoreSecureAreaProvider: SecureAreaProvider<AndroidKeystoreSecureArea>
 
     private var verificationHelper: VerificationHelper? = null
     var deviceResponseBytes: ByteArray? = null
@@ -202,9 +201,11 @@ class TransferHelper private constructor(
 
     init {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val storageFile = Path(context.noBackupFilesDir.path, "identity.bin")
-        storageEngine = AndroidStorageEngine.Builder(context, storageFile).build()
-        androidKeystoreSecureArea = AndroidKeystoreSecureArea(context, storageEngine);
+        val storageFile = File(context.noBackupFilesDir.path, "identity.db")
+        storage = AndroidStorage(storageFile.absolutePath)
+        androidKeystoreSecureAreaProvider = SecureAreaProvider {
+            AndroidKeystoreSecureArea.create(context, storage)
+        }
         state.value = State.IDLE
 
         initializeVerificationHelper()
