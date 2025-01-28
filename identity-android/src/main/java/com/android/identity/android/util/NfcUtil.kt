@@ -90,7 +90,7 @@ object NfcUtil {
         baos.write(0xa4)
         baos.write(0x04)
         baos.write(0x00)
-        baos.write(0x07)
+        baos.write(aid.size)
         try {
             baos.write(aid)
         } catch (e: IOException) {
