@@ -22,6 +22,9 @@ enum class OID(
     SIGNATURE_ECDSA_SHA256("1.2.840.10045.4.3.2", "ECDSA coupled with SHA-256"),
     SIGNATURE_ECDSA_SHA384("1.2.840.10045.4.3.3", "ECDSA coupled with SHA-384"),
     SIGNATURE_ECDSA_SHA512("1.2.840.10045.4.3.4", "ECDSA coupled with SHA-512"),
+    SIGNATURE_RS256("1.2.840.113549.1.1.11", "PKCS #1 v1.5 signature algorithm with SHA256 and RSA"),
+    SIGNATURE_RS384("1.2.840.113549.1.1.12", "PKCS #1 v1.5 signature algorithm with SHA384 and RSA"),
+    SIGNATURE_RS512("1.2.840.113549.1.1.13", "PKCS #1 v1.5 signature algorithm with SHA512 and RSA"),
 
     X25519("1.3.101.110", "X25519 algorithm used with the Diffie-Hellman operation"),
     X448("1.3.101.111", "X448 algorithm used with the Diffie-Hellman operation"),
@@ -29,6 +32,7 @@ enum class OID(
     ED448("1.3.101.113", "Edwards-curve Digital Signature Algorithm (EdDSA) Ed448"),
 
     COMMON_NAME("2.5.4.3", "commonName (X.520 DN component)"),
+    SERIAL_NUMBER("2.5.4.5", "serialNumber (X.520 DN component)"),
     COUNTRY_NAME("2.5.4.6", "countryName (X.520 DN component)"),
     LOCALITY_NAME("2.5.4.7", "localityName (X.520 DN component)"),
     STATE_OR_PROVINCE_NAME("2.5.4.8", "stateOrProvinceName (X.520 DN component)"),
@@ -43,7 +47,7 @@ enum class OID(
     X509_EXTENSION_ISSUER_ALT_NAME("2.5.29.18", "issuerAltName (X.509 extension)"),
     X509_EXTENSION_CRL_DISTRIBUTION_POINTS("2.5.29.31", "cRLDistributionPoints (X.509 extension)"),
 
-    ISO_18013_5_MDL_DS("1.0.18013.5.1.2", "Mobile Driving Licence (mDL) Document Signer (DS)")
+    ISO_18013_5_MDL_DS("1.0.18013.5.1.2", "Mobile Driving Licence (mDL) Document Signer (DS)"),
 
     ;
 

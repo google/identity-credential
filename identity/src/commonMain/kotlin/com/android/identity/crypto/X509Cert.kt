@@ -163,10 +163,13 @@ class X509Cert(
     val signatureAlgorithm: Algorithm
         get() {
             return when (signatureAlgorithmOid) {
-                "1.2.840.10045.4.3.2" -> Algorithm.ES256
-                "1.2.840.10045.4.3.3" -> Algorithm.ES384
-                "1.2.840.10045.4.3.4" -> Algorithm.ES512
-                "1.3.101.112", "1.3.101.113" -> Algorithm.EDDSA  // ED25519, ED448
+                OID.SIGNATURE_ECDSA_SHA256.oid -> Algorithm.ES256
+                OID.SIGNATURE_ECDSA_SHA384.oid -> Algorithm.ES384
+                OID.SIGNATURE_ECDSA_SHA512.oid -> Algorithm.ES512
+                OID.ED25519.oid, OID.ED448.oid -> Algorithm.EDDSA  // ED25519, ED448
+                OID.SIGNATURE_RS256.oid -> Algorithm.RS256
+                OID.SIGNATURE_RS384.oid -> Algorithm.RS384
+                OID.SIGNATURE_RS512.oid -> Algorithm.RS512
                 else -> throw IllegalArgumentException(
                     "Unexpected algorithm OID $signatureAlgorithmOid")
             }

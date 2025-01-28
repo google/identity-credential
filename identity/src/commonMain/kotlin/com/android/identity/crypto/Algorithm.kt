@@ -62,6 +62,15 @@ enum class Algorithm(val coseAlgorithmIdentifier: Int) {
      */
     HPKE_BASE_P256_SHA256_AES128GCM(35),
 
+    /** RSASSA-PKCS1-v1_5 using SHA-256 */
+    RS256(-257),
+
+    /** RSASSA-PKCS1-v1_5 using SHA-384 */
+    RS384(-258),
+
+    /** RSASSA-PKCS1-v1_5 using SHA-512 */
+    RS512(-259),
+
     ;
 
     /**

@@ -48,5 +48,6 @@
     <string name="certificate_viewer_k_pk_named_curve">Named Curve</string>
     <string name="certificate_viewer_k_pk_value">Value</string>
     <string name="certificate_viewer_sub_extensions">Extensions</string>
+    <string name="certificate_viewer_version_text">X.509 Version %1$s Certificate</string>
 
 </resources>

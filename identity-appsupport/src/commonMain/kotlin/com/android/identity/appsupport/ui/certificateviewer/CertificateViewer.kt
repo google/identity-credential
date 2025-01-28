@@ -62,6 +62,7 @@ import identitycredential.identity_appsupport.generated.resources.certificate_vi
 import identitycredential.identity_appsupport.generated.resources.certificate_viewer_sub_issuer
 import identitycredential.identity_appsupport.generated.resources.certificate_viewer_sub_public_key_info
 import identitycredential.identity_appsupport.generated.resources.certificate_viewer_sub_subject
+import identitycredential.identity_appsupport.generated.resources.certificate_viewer_version_text
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import org.jetbrains.compose.resources.StringResource
@@ -201,29 +202,34 @@ private fun CertificateView(
 
             Subtitle(stringResource(Res.string.certificate_viewer_sub_basic_info))
             KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_type), data.type)
-            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_serial_number), data.serialNumber)
-            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_version), data.version)
+            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_version),
+                stringResource(Res.string.certificate_viewer_version_text, data.version))
+            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_serial_number),
+                data.serialNumber)
             KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_issued), data.issued)
             KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_expired), data.expired)
 
             if (data.subject.isNotEmpty()) {
                 Subtitle(stringResource(Res.string.certificate_viewer_sub_subject))
                 data.subject.forEach { (key, value) ->
-                    KeyValuePairLine(stringResource(resFromKey(key)), value)
+                    KeyValuePairLine(stringResource(resFromName(key)), value)
                 }
             }
 
             if (data.issuer.isNotEmpty()) {
                 Subtitle(stringResource(Res.string.certificate_viewer_sub_issuer))
-                data.subject.forEach { (key, value) ->
-                    KeyValuePairLine(stringResource(resFromKey(key)), value)
+                data.issuer.forEach { (key, value) ->
+                    KeyValuePairLine(stringResource(resFromName(key)), value)
                 }
             }
 
             Subtitle(stringResource(Res.string.certificate_viewer_sub_public_key_info))
-            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_pk_algorithm), data.pkAlgorithm)
-            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_pk_named_curve), data.pkNamedCurve)
-            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_pk_value), data.pkValue)
+            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_pk_algorithm),
+                data.pkAlgorithm)
+            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_pk_named_curve),
+                data.pkNamedCurve)
+            KeyValuePairLine(stringResource(Res.string.certificate_viewer_k_pk_value),
+                data.pkValue)
 
             // TODO: Extensions are going to need a bit more work, like conveying criticality and
             //  pretty-printing well-known extensions.
@@ -395,9 +401,10 @@ private fun validateParameters(
     }
 }
 
-private fun resFromKey(it: String): StringResource {
+private fun resFromName(nameId: String): StringResource {
     val nMap = mapOf(
         OID.COMMON_NAME.oid to Res.string.certificate_viewer_k_common_name,
+        OID.SERIAL_NUMBER.oid to Res.string.certificate_viewer_k_serial_number,
         OID.COUNTRY_NAME.oid to Res.string.certificate_viewer_k_country_name,
         OID.LOCALITY_NAME.oid to Res.string.certificate_viewer_k_locality_name,
         OID.STATE_OR_PROVINCE_NAME.oid to Res.string.certificate_viewer_k_state_name,
@@ -405,6 +412,6 @@ private fun resFromKey(it: String): StringResource {
         OID.ORGANIZATIONAL_UNIT_NAME.oid to Res.string.certificate_viewer_k_org_unit_name,
         // TODO: Add support for other OIDs from RFC 5280 Annex A, as needed.
     )
-    return nMap[it] ?: Res.string.certificate_viewer_k_other_name
+    return nMap[nameId] ?: Res.string.certificate_viewer_k_other_name
 }
 

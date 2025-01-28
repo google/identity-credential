@@ -58,6 +58,7 @@ class X500Name(val components: Map<String, ASN1String>) {
             OID.STATE_OR_PROVINCE_NAME.oid to "ST",
             OID.ORGANIZATION_NAME.oid to "O",
             OID.ORGANIZATIONAL_UNIT_NAME.oid to "OU",
+            OID.SERIAL_NUMBER.oid to "SN",
         )
 
         private val knownNames: Map<String, String> by lazy {

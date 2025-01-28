@@ -17,8 +17,8 @@
     <string name="iso_mdoc_proximity_sharing_title">ISO mdoc Proximity Sharing</string>
     <string name="iso_mdoc_proximity_reading_title">ISO mdoc Proximity Reading</string>
     <string name="iso_mdoc_multi_device_testing_title">ISO mdoc Multi-Device Testing</string>
-    <string name="certificate_viewer_examples_title">CertificatesViewer Examples</string>
-    <string name="certificate_viewer_title">X.509 Cert Chain Viewer</string>
+    <string name="certificate_viewer_examples_title">CertificateViewer Examples</string>
+    <string name="certificate_viewer_title">Certificate Viewer</string>
     <string name="provisioning_test_title">Test provisioning</string>
     <string name="presentation_title">Presentation</string>
 

@@ -1,17 +1,20 @@
 package com.android.identity.appsupport.ui.certificateviewer
 
-import com.android.identity.asn1.ASN1String
 import com.android.identity.asn1.OID
+import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.X509Cert
 import com.android.identity.util.unsignedBigIntToString
 import com.android.identity.util.toHex
 import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.format
 import kotlinx.datetime.format.DateTimeComponents
-import kotlinx.datetime.offsetAt
+import kotlinx.datetime.format.DateTimeComponents.Companion.Format
+import kotlinx.datetime.format.DateTimeFormat
+import kotlinx.datetime.format.DayOfWeekNames
+import kotlinx.datetime.format.MonthNames
+import kotlinx.datetime.format.Padding
+import kotlinx.datetime.format.char
 import kotlin.collections.mapValues
-import kotlin.text.toIntOrNull
 
 /**
  * View Model immutable data.
@@ -40,6 +43,18 @@ internal data class CertificateViewData(
                 "" // TODO: Can't populate from data marker. Process properly in Composables.
             val type = "X.509"
 
+            val version = runCatching { cert.version.toString() }
+                .getOrElse { _ -> "" }
+                .let { versionString ->
+                    // Per RFC 5280.
+                    when (versionString) {
+                        "" -> "1" // No version means version 1.
+                        "1" -> "2"
+                        "2" -> "3"
+                        else -> versionString
+                    }
+                }
+
             val serialNumber: String = with(cert.serialNumber) {
                 if (value.size <= 8) {
                     toLong().toString()
@@ -48,21 +63,24 @@ internal data class CertificateViewData(
                 }
             }
 
-            val version = cert.version.toString()
+            val issued = cert.validityNotBefore.formatWithRfc1123()
 
-            val issued = cert.validityNotBefore.formatWithIsoFormat()
+            val expired = cert.validityNotAfter.formatWithRfc1123()
 
-            val expired = cert.validityNotAfter.formatWithIsoFormat()
+            val subject = cert.subject.components.mapValues { it.value.value }
 
-            val subject = refineKeyNames(cert.subject.components)
+            val issuer = cert.issuer.components.mapValues { it.value.value }
 
-            val issuer = refineKeyNames(cert.issuer.components)
+            val pkAlgorithm: String = OID.lookupByOid(cert.signatureAlgorithmOid)?.description
+                    ?: "Unexpected algorithm OID ${cert.signatureAlgorithmOid}"
 
-            val pkAlgorithm: String = runCatching { cert.signatureAlgorithm.name }
-                .getOrElse { e -> e.message ?: notAvail }
-
-            val pkNamedCurve: String = runCatching { cert.ecPublicKey.curve.name }
-                .getOrElse { e -> e.message ?: notAvail }
+            val pkNamedCurve: String =
+                if (cert.signatureAlgorithm in listOf(Algorithm.RS256, Algorithm.RS384, Algorithm.RS512))
+                    notAvail // RSA doesn't have a named curve.
+                else {
+                    runCatching { cert.ecPublicKey.curve.name }.getOrElse { e ->
+                        e.message ?: notAvail }
+                }
 
             val pkValue: String = runCatching { cert.signature.toHex(byteDivider = " ") }
                 .getOrElse { e -> e.message ?: notAvail }
@@ -89,22 +107,23 @@ internal data class CertificateViewData(
             )
         }
 
-        private fun refineKeyNames(components: Map<String, ASN1String>): Map<String, String> =
-            components
-                .mapKeys { (key, _) ->
-                    key.substringBefore("=", key)
-                }
-                .mapValues { (_, value) ->
-                    value.value
-                }
-
-        /**
-         * The Date Time format can be customized by creating specific DateTimeComponents<> structure
-         * as needed for KMP compatibility.
-         */
-        private fun Instant.formatWithIsoFormat(timeZone: TimeZone = TimeZone.currentSystemDefault()) =
-            format(DateTimeComponents.Formats.ISO_DATE_TIME_OFFSET, timeZone.offsetAt(this))
-
+        private fun Instant.formatWithRfc1123(): String {
+            // Modified RFC_1123: Thu, Jan 4 2029 00:00
+            val rfc1123mod: DateTimeFormat<DateTimeComponents> = Format {
+                dayOfWeek(DayOfWeekNames.ENGLISH_ABBREVIATED)
+                chars(", ")
+                monthName(MonthNames.ENGLISH_ABBREVIATED)
+                char(' ')
+                dayOfMonth(Padding.NONE)
+                char(' ')
+                year()
+                char(' ')
+                hour()
+                char(':')
+                minute()
+            }
+            return format(rfc1123mod)
+        }
     }
 }
 
