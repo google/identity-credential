@@ -16,7 +16,6 @@
 package com.android.identity.document
 
 import com.android.identity.credential.Credential
-import com.android.identity.credential.SecureAreaBoundCredential
 import kotlinx.datetime.Instant;
 
 /**
@@ -56,7 +55,7 @@ object DocumentUtil {
     suspend fun managedCredentialHelper(
         document: Document,
         domain: String,
-        createCredential: (suspend (credentialToReplace: Credential?) -> Credential)?,
+        createCredential: (suspend (credentialIdentifierToReplace: String?) -> Credential)?,
         now: Instant,
         numCredentials: Int,
         maxUsesPerCredential: Int,
@@ -67,7 +66,7 @@ object DocumentUtil {
         // First determine which of the existing credentials need a replacement...
         var numCredentialsNotNeedingReplacement = 0
         var numReplacementsGenerated = 0
-        for (authCredential in document.certifiedCredentials.filter { it.domain == domain}) {
+        for (authCredential in document.getCertifiedCredentialsForDomain(domain)) {
             var credentialExceededUseCount = false
             var credentialBeyondExpirationDate = false
             if (authCredential.usageCount >= maxUsesPerCredential) {
@@ -80,9 +79,10 @@ object DocumentUtil {
                 credentialBeyondExpirationDate = true
             }
             if (credentialExceededUseCount || credentialBeyondExpirationDate) {
-                if (authCredential.replacement == null) {
+                val replacement = document.getReplacementCredentialFor(authCredential.identifier)
+                if (replacement == null) {
                     if (!dryRun) {
-                        createCredential!!.invoke(authCredential)
+                        createCredential!!.invoke(authCredential.identifier)
                     }
                     numReplacementsGenerated++
                     continue
@@ -91,8 +91,7 @@ object DocumentUtil {
             numCredentialsNotNeedingReplacement++
         }
 
-        var numExistingPendingCredentials =
-            document.pendingCredentials.filter { it.domain == domain }.size
+        var numExistingPendingCredentials = document.getPendingCredentialsForDomain(domain).size
         if (dryRun) {
             numExistingPendingCredentials += numReplacementsGenerated
         }
@@ -101,14 +100,15 @@ object DocumentUtil {
         val numNonReplacementsToGenerate = (numCredentials
                 - numCredentialsNotNeedingReplacement
                 - numExistingPendingCredentials)
+
         if (!dryRun) {
             if (numNonReplacementsToGenerate > 0) {
                 for (n in 0 until numNonReplacementsToGenerate) {
-                    val pendingCredential = createCredential!!.invoke(null)
-                    pendingCredential.applicationData.setBoolean(domain, true)
+                    createCredential!!.invoke(null)
                 }
             }
         }
+
         return numReplacementsGenerated + numNonReplacementsToGenerate
     }
 }

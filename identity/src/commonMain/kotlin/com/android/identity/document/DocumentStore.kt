@@ -15,21 +15,15 @@
  */
 package com.android.identity.document
 
-import com.android.identity.credential.Credential
 import com.android.identity.credential.CredentialFactory
 import com.android.identity.securearea.SecureArea
 import com.android.identity.securearea.SecureAreaRepository
 import com.android.identity.storage.Storage
-import com.android.identity.storage.StorageTableSpec
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.coroutines.CoroutineContext
 
 /**
  * Class for storing real-world identity documents.
@@ -56,19 +50,17 @@ import kotlin.coroutines.CoroutineContext
  * be used.
  * @property credentialFactory the [CredentialFactory] to use for retrieving serialized credentials
  * associated with documents.
- * @property coroutineScope the [CoroutineScope] to use.
  */
 class DocumentStore(
     val storage: Storage,
-    val secureAreaRepository: SecureAreaRepository,
-    val credentialFactory: CredentialFactory,
-    internal val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default)
+    internal val secureAreaRepository: SecureAreaRepository,
+    internal val credentialFactory: CredentialFactory,
+    internal val documentMetadataFactory: DocumentMetadataFactory
 ) {
     // Use a cache so the same instance is returned by multiple lookupDocument() calls.
+    // Cache is protected by the lock. Once the document is loaded it is never evicted.
+    private val lock = Mutex()
     private val documentCache = mutableMapOf<String, Document>()
-    private val storageTableHolder = coroutineScope.async {
-        storage.getTable(tableSpec)
-    }
 
     /**
      * Creates a new document.
@@ -76,56 +68,33 @@ class DocumentStore(
      * If a document with the given identifier already exists, it will be deleted prior to
      * creating the document.
      *
-     * The returned document isn't yet added to the store and exists only in memory
-     * (e.g. not persisted to the [StorageEngine] the document store has been configured with)
-     * until [addDocument] has been called. Events will not be emitted (via [eventFlow]) until
-     * this happens
-     *
-     * @param name an identifier for the document.
      * @return A newly created document.
      */
-    suspend fun createDocument(name: String): Document {
-        lookupDocument(name)?.let { document ->
-            documentCache.remove(name)
-            emitOnDocumentDeleted(document)
-            document.deleteDocument()
+    suspend fun createDocument(
+        metadataInitializer: suspend (metadata: DocumentMetadata) -> Unit = {}
+    ): Document {
+        val document = Document.create(this)
+        document.metadata = documentMetadataFactory(document.identifier,null, document::saveMetadata)
+        metadataInitializer(document.metadata)
+        lock.withLock {
+            documentCache[document.identifier] = document
         }
-        val transientDocument = Document.create(
-            storageTableHolder.await(),
-            secureAreaRepository,
-            name,
-            this,
-            credentialFactory
-        )
-        return transientDocument
+        emitOnDocumentAdded(document.identifier)
+        return document
     }
 
     /**
-     * Adds a document created with [createDocument] to the document store.
-     *
-     * This makes the document visible to collectors collecting from [eventFlow].
-     *
-     * @param document the document.
-     */
-    suspend fun addDocument(document: Document) {
-        document.addToStore()
-        documentCache[document.name] = document
-        emitOnDocumentAdded(document)
-    }
-
-    /**
-     * Looks up a document previously added to the store with [addDocument].
+     * Looks up a document in the store.
      *
      * @param name the identifier of the document.
      * @return the document or `null` if not found.
      */
     suspend fun lookupDocument(name: String): Document? {
-        val result =
-            documentCache[name]
-                ?: Document.lookup(storageTableHolder.await(), secureAreaRepository, name, this, credentialFactory)
-                ?: return null
-        documentCache[name] = result
-        return result
+        return lock.withLock {
+            documentCache.getOrPut(name) {
+                Document.lookup(this, name) ?: return@withLock null
+            }
+        }
     }
 
     /**
@@ -135,7 +104,7 @@ class DocumentStore(
      */
     suspend fun listDocuments(): List<String> {
         // right now lock is not required
-        return storageTableHolder.await().enumerate()
+        return Document.enumerate(this)
     }
 
     /**
@@ -147,33 +116,12 @@ class DocumentStore(
      */
     suspend fun deleteDocument(name: String) {
         lookupDocument(name)?.let { document ->
-            documentCache.remove(name)
-            emitOnDocumentDeleted(document)
             document.deleteDocument()
+            documentCache.remove(name)
         }
     }
 
-    /**
-     * Types of events used in the [eventFlow] property.
-     */
-    enum class EventType {
-        /**
-         * A document was added to the store.
-         */
-        DOCUMENT_ADDED,
-
-        /**
-         * A document was deleted from the store.
-         */
-        DOCUMENT_DELETED,
-
-        /**
-         * A document in the store was updated.
-         */
-        DOCUMENT_UPDATED
-    }
-
-    private val _eventFlow = MutableSharedFlow<Pair<EventType, Document>>()
+    private val _eventFlow = MutableSharedFlow<DocumentEvent>()
 
     /**
      * A [SharedFlow] which can be used to listen for when credentials are added and removed
@@ -183,30 +131,19 @@ class DocumentStore(
         get() = _eventFlow.asSharedFlow()
 
 
-    private suspend fun emitOnDocumentAdded(document: Document) {
-        _eventFlow.emit(Pair(EventType.DOCUMENT_ADDED, document))
+    private suspend fun emitOnDocumentAdded(documentId: String) {
+        _eventFlow.emit(DocumentAdded(documentId))
     }
 
-    private suspend fun emitOnDocumentDeleted(document: Document) {
-        _eventFlow.emit(Pair(EventType.DOCUMENT_DELETED, document))
+    internal suspend fun emitOnDocumentDeleted(documentId: String) {
+        _eventFlow.emit(DocumentDeleted(documentId))
     }
 
-    // Called by code in Document class
-    internal suspend fun emitOnDocumentChanged(document: Document) {
-        if (documentCache[document.name] == null) {
-            // This is to prevent emitting onChanged when creating a document.
-            return
-        }
-        _eventFlow.emit(Pair(EventType.DOCUMENT_UPDATED, document))
+    internal suspend fun emitOnDocumentChanged(documentId: String) {
+        _eventFlow.emit(DocumentUpdated(documentId))
     }
 
     companion object {
         const val TAG = "DocumentStore"
-
-        private val tableSpec = StorageTableSpec(
-            name = "DocumentStore",
-            supportPartitions = false,
-            supportExpiration = false
-        )
     }
 }

@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":identity"))
     implementation(libs.kotlinx.datetime)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.io.bytestring)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.bouncy.castle.bcprov)
     testImplementation(libs.bouncy.castle.bcpkix)

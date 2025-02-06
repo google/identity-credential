@@ -42,8 +42,8 @@ import com.android.identity.documenttype.knowntypes.GermanPersonalID
 import com.android.identity.documenttype.knowntypes.PhotoID
 import com.android.identity.documenttype.knowntypes.UtopiaMovieTicket
 import com.android.identity.documenttype.knowntypes.UtopiaNaturalization
-import com.android.identity.issuance.DocumentExtensions.documentConfiguration
 import com.android.identity.issuance.WalletApplicationCapabilities
+import com.android.identity.issuance.WalletDocumentMetadata
 import com.android.identity.issuance.remote.WalletServerProvider
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.vical.SignedVical
@@ -194,20 +194,25 @@ class WalletApplication : Application() {
         // init credentialFactory
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(MdocCredential::class) {
-            document, dataItem -> MdocCredential(document).apply { deserialize(dataItem) }
+            document -> MdocCredential(document)
         }
         credentialFactory.addCredentialImplementation(KeyBoundSdJwtVcCredential::class) {
-            document, dataItem -> KeyBoundSdJwtVcCredential(document).apply { deserialize(dataItem) }
+            document -> KeyBoundSdJwtVcCredential(document)
         }
         credentialFactory.addCredentialImplementation(KeylessSdJwtVcCredential::class) {
-            document, dataItem -> KeylessSdJwtVcCredential(document).apply { deserialize(dataItem) }
+            document -> KeylessSdJwtVcCredential(document)
         }
         credentialFactory.addCredentialImplementation(DirectAccessCredential::class) {
-                document, dataItem -> DirectAccessCredential(document).apply { deserialize(dataItem) }
+            document -> DirectAccessCredential(document)
         }
 
         // init documentStore
-        documentStore = DocumentStore(storage, secureAreaRepository, credentialFactory)
+        documentStore = DocumentStore(
+            storage = storage,
+            secureAreaRepository = secureAreaRepository,
+            credentialFactory = credentialFactory,
+            documentMetadataFactory = WalletDocumentMetadata::create
+        )
 
         // init Wallet Server
         walletServerProvider = WalletServerProvider(
@@ -415,10 +420,11 @@ class WalletApplication : Application() {
             intent,
             PendingIntent.FLAG_IMMUTABLE)
 
-        val cardArt = document.documentConfiguration.cardArt
+        val metadata = document.metadata as WalletDocumentMetadata
+        val cardArt = metadata.documentConfiguration.cardArt
         val bitmap = BitmapFactory.decodeByteArray(cardArt, 0, cardArt.size)
 
-        val title = document.documentConfiguration.displayName
+        val title = metadata.documentConfiguration.displayName
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_name)
             .setLargeIcon(bitmap)
@@ -435,7 +441,7 @@ class WalletApplication : Application() {
             return
         }
 
-        val notificationId = document.name.hashCode()
+        val notificationId = document.identifier.hashCode()
         NotificationManagerCompat.from(applicationContext).notify(notificationId, builder.build())
     }
 

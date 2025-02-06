@@ -381,7 +381,7 @@ class OpenID4VPPresentationActivity : FragmentActivity() {
         override fun bytes(): ByteArray = content
     }
 
-    private fun getCredentialAndClaims(
+    private suspend fun getCredentialAndClaims(
         document: Document,
         credentialFormat: CredentialFormat,
         inputDescriptor: JsonObject,

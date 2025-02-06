@@ -32,6 +32,7 @@ import com.android.identity.util.Logger
 import identitycredential.samples.testapp.generated.resources.Res
 import identitycredential.samples.testapp.generated.resources.driving_license_card_art
 import kotlinx.datetime.Clock
+import kotlinx.io.bytestring.ByteString
 import kotlinx.io.bytestring.encodeToByteString
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.getDrawableResourceBytes
@@ -104,51 +105,43 @@ object TestAppUtils {
         dsKey: EcPrivateKey,
         dsCert: X509Cert
     ) {
-        if (!documentStore.listDocuments().contains("testDrivingLicense")) {
-            provisionDocument(
-                documentStore,
-                dsKey,
-                dsCert,
-                "testDrivingLicense",
-                DrivingLicense.getDocumentType(),
-                "Erika",
-                "Erika's Driving License"
-            )
+        if (documentStore.listDocuments().size >= 4) {
+            // Assume documents are provisioned
+            // TODO: do we want a more granular check
+            return
         }
-        // Create two PhotoID instances
-        if (!documentStore.listDocuments().contains("testPhotoID")) {
-            provisionDocument(
-                documentStore,
-                dsKey,
-                dsCert,
-                "testPhotoID",
-                PhotoID.getDocumentType(),
-                "Erika",
-                "Erika's Photo ID"
-            )
-        }
-        if (!documentStore.listDocuments().contains("testPhotoID2")) {
-            provisionDocument(
-                documentStore,
-                dsKey,
-                dsCert,
-                "testPhotoID2",
-                PhotoID.getDocumentType(),
-                "Erika #2",
-                "Erika's Photo ID #2"
-            )
-        }
-        if (!documentStore.listDocuments().contains("testEUPersonalID")) {
-            provisionDocument(
-                documentStore,
-                dsKey,
-                dsCert,
-                "testEUPersonalID",
-                EUPersonalID.getDocumentType(),
-                "Erika",
-                "Erika's Personal ID"
-            )
-        }
+        provisionDocument(
+            documentStore,
+            dsKey,
+            dsCert,
+            DrivingLicense.getDocumentType(),
+            "Erika",
+            "Erika's Driving License"
+        )
+        provisionDocument(
+            documentStore,
+            dsKey,
+            dsCert,
+            PhotoID.getDocumentType(),
+            "Erika",
+            "Erika's Photo ID"
+        )
+        provisionDocument(
+            documentStore,
+            dsKey,
+            dsCert,
+            PhotoID.getDocumentType(),
+            "Erika #2",
+            "Erika's Photo ID #2"
+        )
+        provisionDocument(
+            documentStore,
+            dsKey,
+            dsCert,
+            EUPersonalID.getDocumentType(),
+            "Erika",
+            "Erika's Personal ID"
+        )
     }
 
     // TODO: also provision SD-JWT credentials, if applicable
@@ -157,14 +150,10 @@ object TestAppUtils {
         documentStore: DocumentStore,
         dsKey: EcPrivateKey,
         dsCert: X509Cert,
-        documentId: String,
         documentType: DocumentType,
         givenNameOverride: String,
         displayName: String,
     ) {
-        Logger.i(TAG, "Provisioning $documentId")
-        val document = documentStore.createDocument(documentId)
-
         val nsdBuilder = NameSpacedData.Builder()
         for ((nsName, ns) in documentType.mdocDocumentType?.namespaces!!) {
             for ((deName, de) in ns.dataElements) {
@@ -182,20 +171,23 @@ object TestAppUtils {
         }
         val documentData = nsdBuilder.build()
 
-        // TODO: move ApplicationData for `documentData`, `cardArt`, `displayName` to real
-        //  fields on Document.
-        //
-        document.applicationData.setNameSpacedData("documentData", documentData)
-        val overrides: MutableMap<String, Map<String, ByteArray>> = HashMap()
-        val exceptions: MutableMap<String, List<String>> = HashMap()
-
         val cardArt = getDrawableResourceBytes(
             getSystemResourceEnvironment(),
             Res.drawable.driving_license_card_art
         )
-        document.applicationData.setData("cardArt", cardArt)
-        document.applicationData.setString("displayName", displayName)
-        document.applicationData.setString("displayType", documentType.displayName)
+
+        val document = documentStore.createDocument {
+            val metadata = it as TestDocumentMetadata
+            metadata.initialize(
+                displayName = displayName,
+                typeDisplayName = documentType.displayName,
+                cardArt = ByteString(cardArt),
+                nameSpacedData = documentData
+            )
+        }
+
+        val overrides: MutableMap<String, Map<String, ByteArray>> = HashMap()
+        val exceptions: MutableMap<String, List<String>> = HashMap()
 
         // Create authentication keys...
         for (domain in listOf(MDOC_CREDENTIAL_DOMAIN_AUTH, MDOC_CREDENTIAL_DOMAIN_NO_AUTH)) {
@@ -207,21 +199,18 @@ object TestAppUtils {
             val timeValidityEnd = now + 24.hours
             val secureArea = platformSecureAreaProvider().get()
 
-            val mdocCredential = MdocCredential(
+            val mdocCredential = MdocCredential.create(
                 document = document,
-                asReplacementFor = null,
+                asReplacementForIdentifier = null,
                 domain = domain,
                 secureArea = secureArea,
-                docType = documentType.mdocDocumentType!!.docType
-            ).apply {
-                generateKey(
-                    platformCreateKeySettings(
-                        challenge = "Challenge".encodeToByteString(),
-                        keyPurposes = setOf(KeyPurpose.AGREE_KEY, KeyPurpose.SIGN),
-                        userAuthenticationRequired = userAuthenticationRequired
-                    )
+                docType = documentType.mdocDocumentType!!.docType,
+                createKeySettings = platformCreateKeySettings(
+                    challenge = "Challenge".encodeToByteString(),
+                    keyPurposes = setOf(KeyPurpose.AGREE_KEY, KeyPurpose.SIGN),
+                    userAuthenticationRequired = userAuthenticationRequired
                 )
-            }
+            )
 
             // Generate an MSO and issuer-signed data for this authentication key.
             val msoGenerator = MobileSecurityObjectGenerator(
@@ -287,8 +276,6 @@ object TestAppUtils {
             )
 
         }
-
-        documentStore.addDocument(document)
     }
 
 }

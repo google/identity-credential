@@ -106,9 +106,14 @@ class TransferHelper private constructor(private val context: Context) {
         }
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(MdocCredential::class) {
-            document, dataItem -> MdocCredential(document).apply { deserialize(dataItem) }
+            document -> MdocCredential(document)
         }
-        documentStore = DocumentStore(storage, secureAreaRepository, credentialFactory)
+        documentStore = DocumentStore(
+            storage = storage,
+            secureAreaRepository = secureAreaRepository,
+            credentialFactory = credentialFactory,
+            documentMetadataFactory = PreconsentDocumentMetadata::create
+        )
         state.value = State.NOT_CONNECTED
     }
 

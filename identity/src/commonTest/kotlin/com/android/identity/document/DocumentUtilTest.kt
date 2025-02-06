@@ -31,7 +31,6 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class DocumentUtilTest {
     private lateinit var storage: Storage
@@ -47,23 +46,22 @@ class DocumentUtilTest {
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(
             SecureAreaBoundCredential::class
-        ) { document, dataItem -> SecureAreaBoundCredential(document).apply { deserialize(dataItem) } }
+        ) { document -> SecureAreaBoundCredential(document) }
     }
 
     @Test
     fun managedCredentialHelper() = runTest {
         val documentStore = DocumentStore(
-            storage,
-            secureAreaRepository,
-            credentialFactory
+            storage = storage,
+            secureAreaRepository = secureAreaRepository,
+            credentialFactory = credentialFactory,
+            documentMetadataFactory = SimpleDocumentMetadata::create
         )
         val secureArea: SecureArea =
             secureAreaRepository.getImplementation(SoftwareSecureArea.IDENTIFIER)!!
-        val document = documentStore.createDocument(
-            "testDocument"
-        )
-        assertEquals(0, document.certifiedCredentials.size.toLong())
-        assertEquals(0, document.pendingCredentials.size.toLong())
+        val document = documentStore.createDocument()
+        assertEquals(0, document.getCertifiedCredentials().size.toLong())
+        assertEquals(0, document.getPendingCredentials().size.toLong())
         val authKeySettings = CreateKeySettings(setOf(KeyPurpose.SIGN), EcCurve.P256)
         val numCreds = 10
         val maxUsesPerCred = 5
@@ -77,14 +75,13 @@ class DocumentUtilTest {
             document,
             managedCredDomain,
             createCredential = { credentialToReplace ->
-                val credential = SecureAreaBoundCredential(
+                SecureAreaBoundCredential.create(
                     document,
                     credentialToReplace,
                     managedCredDomain,
                     secureArea,
+                    authKeySettings
                 )
-                credential.generateKey(authKeySettings)
-                credential
             },
             Instant.fromEpochMilliseconds(100),
             numCreds,
@@ -95,11 +92,10 @@ class DocumentUtilTest {
         assertEquals(numCreds.toLong(), numCredsCreated.toLong())
         assertEquals(
             numCreds.toLong(),
-            document.pendingCredentials.size.toLong()
+            document.getPendingCredentials().size.toLong()
         )
         var count = 0
-        for (pak in document.pendingCredentials) {
-            assertTrue(pak.applicationData.getBoolean(managedCredDomain))
+        for (pak in document.getPendingCredentials()) {
             pak.certify(
                 byteArrayOf(0, count++.toByte()),
                 Instant.fromEpochMilliseconds(100),
@@ -107,22 +103,21 @@ class DocumentUtilTest {
             )
         }
         // We should now have |numCreds| certified credentials and none pending
-        assertEquals(0, document.pendingCredentials.size.toLong())
-        assertEquals(numCreds.toLong(), document.certifiedCredentials.size.toLong())
+        assertEquals(0, document.getPendingCredentials().size.toLong())
+        assertEquals(numCreds.toLong(), document.getCertifiedCredentials().size.toLong())
 
         // Certifying again at this point should not make a difference.
         numCredsCreated = DocumentUtil.managedCredentialHelper(
             document,
             managedCredDomain,
             createCredential = { credentialToReplace ->
-                val credential = SecureAreaBoundCredential(
+                SecureAreaBoundCredential.create(
                     document,
                     credentialToReplace,
                     managedCredDomain,
                     secureArea,
+                    authKeySettings
                 )
-                credential.generateKey(authKeySettings)
-                credential
             },
             Instant.fromEpochMilliseconds(100),
             numCreds,
@@ -131,10 +126,10 @@ class DocumentUtilTest {
             false
         )
         assertEquals(0, numCredsCreated.toLong())
-        assertEquals(0, document.pendingCredentials.size.toLong())
+        assertEquals(0, document.getPendingCredentials().size.toLong())
 
         // Use up until just before the limit, and check it doesn't make a difference
-        for (ak in document.certifiedCredentials) {
+        for (ak in document.getCertifiedCredentials()) {
             for (n in 0 until maxUsesPerCred - 1) {
                 ak.increaseUsageCount()
             }
@@ -143,14 +138,13 @@ class DocumentUtilTest {
             document,
             managedCredDomain,
             createCredential = { credentialToReplace ->
-                val credential = SecureAreaBoundCredential(
+                SecureAreaBoundCredential.create(
                     document,
                     credentialToReplace,
                     managedCredDomain,
-                    secureArea
+                    secureArea,
+                    authKeySettings
                 )
-                credential.generateKey(authKeySettings)
-                credential
             },
             Instant.fromEpochMilliseconds(100),
             numCreds,
@@ -159,12 +153,12 @@ class DocumentUtilTest {
             false
         )
         assertEquals(0, numCredsCreated.toLong())
-        assertEquals(0, document.pendingCredentials.size.toLong())
+        assertEquals(0, document.getPendingCredentials().size.toLong())
 
         // For the first 5, use one more time and check replacements are generated for those
         // Let the replacements expire just a tad later
         count = 0
-        for (ak in document.certifiedCredentials) {
+        for (ak in document.getCertifiedCredentials()) {
             ak.increaseUsageCount()
             if (++count >= 5) {
                 break
@@ -174,14 +168,13 @@ class DocumentUtilTest {
             document,
             managedCredDomain,
             createCredential = { credentialToReplace ->
-                val credential = SecureAreaBoundCredential(
+                SecureAreaBoundCredential.create(
                     document,
                     credentialToReplace,
                     managedCredDomain,
                     secureArea,
+                    authKeySettings
                 )
-                credential.generateKey(authKeySettings)
-                credential
             },
             Instant.fromEpochMilliseconds(100),
             numCreds,
@@ -190,9 +183,9 @@ class DocumentUtilTest {
             false
         )
         assertEquals(5, numCredsCreated.toLong())
-        assertEquals(5, document.pendingCredentials.size.toLong())
+        assertEquals(5, document.getPendingCredentials().size.toLong())
         count = 0
-        for (pak in document.pendingCredentials) {
+        for (pak in document.getPendingCredentials()) {
             assertEquals(managedCredDomain, pak.domain)
             pak.certify(
                 byteArrayOf(1, count++.toByte()),
@@ -201,13 +194,13 @@ class DocumentUtilTest {
             )
         }
         // We should now have |numCreds| certified credentials and none pending
-        assertEquals(0, document.pendingCredentials.size.toLong())
-        assertEquals(numCreds.toLong(), document.certifiedCredentials.size.toLong())
+        assertEquals(0, document.getPendingCredentials().size.toLong())
+        assertEquals(numCreds.toLong(), document.getCertifiedCredentials().size.toLong())
         // Check that the _right_ ones were removed by inspecting issuer-provided data.
         // We rely on some implementation details on how ordering works... also cross-reference
         // with data passed into certify() functions above.
         count = 0
-        for (cred in document.certifiedCredentials) {
+        for (cred in document.getCertifiedCredentials()) {
             val expectedData = arrayOf(
                 byteArrayOf(0, 5),
                 byteArrayOf(0, 6),
@@ -229,13 +222,13 @@ class DocumentUtilTest {
             document,
             managedCredDomain,
             createCredential = { credentialToReplace ->
-                val credential = SecureAreaBoundCredential(
+                val credential = SecureAreaBoundCredential.create(
                     document,
                     credentialToReplace,
                     managedCredDomain,
-                    secureArea
+                    secureArea,
+                    authKeySettings
                 )
-                credential.generateKey(authKeySettings)
                 credential
             },
             Instant.fromEpochMilliseconds(195),
@@ -245,9 +238,9 @@ class DocumentUtilTest {
             false
         )
         assertEquals(5, numCredsCreated.toLong())
-        assertEquals(5, document.pendingCredentials.size.toLong())
+        assertEquals(5, document.getPendingCredentials().size.toLong())
         count = 0
-        for (pak in document.pendingCredentials) {
+        for (pak in document.getPendingCredentials()) {
             assertEquals(managedCredDomain, pak.domain)
             pak.certify(
                 byteArrayOf(2, count++.toByte()),
@@ -256,13 +249,13 @@ class DocumentUtilTest {
             )
         }
         // We should now have |numCreds| certified credentials and none pending
-        assertEquals(0, document.pendingCredentials.size.toLong())
-        assertEquals(numCreds.toLong(), document.certifiedCredentials.size.toLong())
+        assertEquals(0, document.getPendingCredentials().size.toLong())
+        assertEquals(numCreds.toLong(), document.getCertifiedCredentials().size.toLong())
         // Check that the _right_ ones were removed by inspecting issuer-provided data.
         // We rely on some implementation details on how ordering works... also cross-reference
         // with data passed into certify() functions above.
         count = 0
-        for (credential in document.certifiedCredentials) {
+        for (credential in document.getCertifiedCredentials()) {
             val expectedData = arrayOf(
                 byteArrayOf(1, 0),
                 byteArrayOf(1, 1),

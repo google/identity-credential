@@ -9,12 +9,10 @@ import com.android.identity.document.Document
 import com.android.identity.document.DocumentStore
 import com.android.identity.issuance.CredentialFormat
 import com.android.identity.issuance.DocumentExtensions.documentConfiguration
-import com.android.identity.issuance.DocumentExtensions.documentIdentifier
-import com.android.identity.issuance.DocumentExtensions.issuingAuthorityConfiguration
-import com.android.identity.issuance.DocumentExtensions.issuingAuthorityIdentifier
-import com.android.identity.issuance.DocumentExtensions.refreshState
+import com.android.identity.issuance.DocumentExtensions.walletDocumentMetadata
 import com.android.identity.issuance.ProofingFlow
 import com.android.identity.issuance.RegistrationResponse
+import com.android.identity.issuance.WalletDocumentMetadata
 import com.android.identity.issuance.evidence.EvidenceRequest
 import com.android.identity.issuance.evidence.EvidenceRequestIcaoNfcTunnel
 import com.android.identity.issuance.evidence.EvidenceRequestOpenid4Vp
@@ -132,12 +130,15 @@ class ProvisioningViewModel : ViewModel() {
                 val documentIdentifier =
                     issuerConfiguration.identifier + "_" + issuerDocumentIdentifier
                 val pendingDocumentConfiguration = issuerConfiguration.pendingDocumentInformation
-                document = documentStore.createDocument(documentIdentifier).apply {
-                    this.issuingAuthorityIdentifier = issuerConfiguration.identifier
-                    this.documentIdentifier = issuerDocumentIdentifier
-                    this.documentConfiguration = pendingDocumentConfiguration
-                    this.issuingAuthorityConfiguration = issuerConfiguration
-                    this.refreshState(walletServerProvider)
+                document = documentStore.createDocument { metadata ->
+                    val walletMetadata = metadata as WalletDocumentMetadata
+                    walletMetadata.initialize(
+                        issuingAuthorityIdentifier = issuerConfiguration.identifier,
+                        documentIdentifier = issuerDocumentIdentifier,
+                        documentConfiguration = pendingDocumentConfiguration,
+                        issuingAuthorityConfiguration = issuerConfiguration,
+                    )
+                    walletMetadata.refreshState(walletServerProvider)
                 }
 
                 proofingFlow = issuer.proof(issuerDocumentIdentifier)
@@ -157,8 +158,9 @@ class ProvisioningViewModel : ViewModel() {
 
                 if (evidenceRequests!!.size == 0) {
                     state.value = State.PROOFING_COMPLETE
-                    document!!.refreshState(walletServerProvider)
-                    documentStore.addDocument(document!!)
+                    val metadata = document!!.walletDocumentMetadata
+                    metadata.refreshState(walletServerProvider)
+                    metadata.markAsProvisioned()
                     proofingFlow!!.complete()
                 } else {
                     selectViableEvidenceRequest()
@@ -166,7 +168,7 @@ class ProvisioningViewModel : ViewModel() {
                 }
             } catch (e: Throwable) {
                 if (document != null) {
-                    documentStore.deleteDocument(document!!.name)
+                    documentStore.deleteDocument(document!!.identifier)
                 }
                 Logger.w(TAG, "Error registering Document", e)
                 e.printStackTrace()
@@ -185,7 +187,7 @@ class ProvisioningViewModel : ViewModel() {
     suspend fun evidenceCollectionFailed(
         error: Throwable
     ) {
-        val nameToDelete = document?.name
+        val nameToDelete = document?.identifier
         if (nameToDelete != null) {
             document = null
             documentStore.deleteDocument(nameToDelete)
@@ -208,16 +210,17 @@ class ProvisioningViewModel : ViewModel() {
                 Logger.d(TAG, "ers1 ${evidenceRequests!!.size}")
                 if (evidenceRequests!!.isEmpty()) {
                     state.value = State.PROOFING_COMPLETE
-                    document!!.refreshState(walletServerProvider)
-                    documentStore.addDocument(document!!)
+                    val metadata = document!!.walletDocumentMetadata
+                    metadata.refreshState(walletServerProvider)
+                    metadata.markAsProvisioned()
                     proofingFlow!!.complete()
-                    document!!.refreshState(walletServerProvider)
+                    metadata.refreshState(walletServerProvider)
                 } else {
                     selectViableEvidenceRequest()
                     state.value = State.EVIDENCE_REQUESTS_READY
                 }
             } catch (e: Throwable) {
-                val nameToDelete = document?.name
+                val nameToDelete = document?.identifier
                 if (nameToDelete != null) {
                     document = null
                     documentStore.deleteDocument(nameToDelete)

@@ -263,14 +263,16 @@ class PresentationActivity : ComponentActivity() {
         val documentRequest = MdocUtil.generateDocumentRequest(docRequest)
         val now = Clock.System.now()
 
-        val document = transferHelper.documentStore.lookupDocument(MainActivity.CREDENTIAL_ID)!!
+        val documentIds = transferHelper.documentStore.listDocuments()
+        // Must have one at this point
+        val document = transferHelper.documentStore.lookupDocument(documentIds[0])!!
         val credential =
             document.findCredential(MainActivity.AUTH_KEY_DOMAIN, now) as MdocCredential
 
         val staticAuthData = StaticAuthDataParser(credential.issuerProvidedData).parse()
         val mergedIssuerNamespaces = MdocUtil.mergeIssuerNamesSpaces(
             documentRequest,
-            document.applicationData.getNameSpacedData("documentData"),
+            document.preconsentMetadata.namespacedData,
             staticAuthData
         )
 

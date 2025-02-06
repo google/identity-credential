@@ -340,7 +340,7 @@ class PresentmentModel {
         val documentIdToCredential = mutableMapOf<String, Credential>()
         for (credential in credentials) {
             documents.add(credential.document)
-            documentIdToCredential[credential.document.name] = credential
+            documentIdToCredential[credential.document.identifier] = credential
         }
         check(documentIdToCredential.size == credentials.size) { "Credentials must be from distinct documents" }
         _availableDocuments = documents
@@ -350,7 +350,7 @@ class PresentmentModel {
         }
         _availableDocuments = null
         _state.value = State.PROCESSING
-        return documentIdToCredential[ret?.name]
+        return documentIdToCredential[ret?.identifier]
     }
 
     private var _availableDocuments: List<Document>? = null

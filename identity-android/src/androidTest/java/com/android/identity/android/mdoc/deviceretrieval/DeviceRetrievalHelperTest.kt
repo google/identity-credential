@@ -47,6 +47,7 @@ import com.android.identity.crypto.X500Name
 import com.android.identity.crypto.X509Cert
 import com.android.identity.crypto.X509CertChain
 import com.android.identity.crypto.X509KeyUsage
+import com.android.identity.document.SimpleDocumentMetadata
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.mdoc.mso.MobileSecurityObjectGenerator
 import com.android.identity.mdoc.mso.StaticAuthDataGenerator
@@ -123,26 +124,26 @@ class DeviceRetrievalHelperTest {
             )
         }
         val credentialFactory = CredentialFactory()
-        credentialFactory.addCredentialImplementation(MdocCredential::class) { document, dataItem ->
-            MdocCredential(document).apply { deserialize(dataItem) }
+        credentialFactory.addCredentialImplementation(MdocCredential::class) { document ->
+            MdocCredential(document)
         }
         documentStore = DocumentStore(
-            storage,
-            secureAreaRepository,
-            credentialFactory
+            storage = storage,
+            secureAreaRepository = secureAreaRepository,
+            credentialFactory = credentialFactory,
+            documentMetadataFactory = SimpleDocumentMetadata::create
         )
     }
 
     private suspend fun asyncSetup() {
         // Create the document...
-        document = documentStore.createDocument("testDocument")
-        documentStore.addDocument(document)
+        document = documentStore.createDocument()
         val nameSpacedData = NameSpacedData.Builder()
             .putEntryString(MDL_NAMESPACE, "given_name", "Erika")
             .putEntryString(MDL_NAMESPACE, "family_name", "Mustermann")
             .putEntryBoolean(AAMVA_NAMESPACE, "real_id", true)
             .build()
-        document.applicationData.setNameSpacedData("documentData", nameSpacedData)
+        (document.metadata as SimpleDocumentMetadata).setNameSpacedData(nameSpacedData)
 
         // Create a credential... make sure the credential used supports both
         // mdoc ECDSA and MAC authentication.
@@ -152,19 +153,16 @@ class DeviceRetrievalHelperTest {
         timeValidityEnd = fromEpochMilliseconds(nowMillis + 10 * 86400 * 1000)
         val secureArea =
             secureAreaRepository.getImplementation(AndroidKeystoreSecureArea.IDENTIFIER)
-        mdocCredential = MdocCredential(
+        mdocCredential = MdocCredential.create(
             document,
             null,
             CREDENTIAL_DOMAIN,
             secureArea!!,
-            MDL_DOCTYPE
-        ).apply {
-            generateKey(
-                SoftwareCreateKeySettings.Builder()
-                    .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
-                    .build()
-            )
-        }
+            MDL_DOCTYPE,
+            SoftwareCreateKeySettings.Builder()
+                .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
+                .build()
+        )
         Assert.assertFalse(mdocCredential.isCertified)
 
         // Generate an MSO and issuer-signed data for this credential.
@@ -406,7 +404,7 @@ class DeviceRetrievalHelperTest {
                     val mergedIssuerNamespaces: Map<String, List<ByteArray>> =
                         mergeIssuerNamesSpaces(
                             generateDocumentRequest(request),
-                            document.applicationData.getNameSpacedData("documentData"),
+                            document.metadata.nameSpacedData,
                             staticAuthData
                         )
                     generator.addDocument(

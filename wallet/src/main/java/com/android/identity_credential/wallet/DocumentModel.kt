@@ -25,7 +25,10 @@ import com.android.identity.crypto.EcCurve
 import com.android.identity.device.AssertionBindingKeys
 import com.android.identity.mdoc.credential.MdocCredential
 import com.android.identity.document.Document
+import com.android.identity.document.DocumentAdded
+import com.android.identity.document.DocumentDeleted
 import com.android.identity.document.DocumentStore
+import com.android.identity.document.DocumentUpdated
 import com.android.identity.document.DocumentUtil
 import com.android.identity.documenttype.DocumentTypeRepository
 import com.android.identity.issuance.DocumentCondition
@@ -33,12 +36,12 @@ import com.android.identity.issuance.DocumentExtensions.documentConfiguration
 import com.android.identity.issuance.DocumentExtensions.documentIdentifier
 import com.android.identity.issuance.DocumentExtensions.issuingAuthorityIdentifier
 import com.android.identity.issuance.DocumentExtensions.numDocumentConfigurationsDownloaded
-import com.android.identity.issuance.DocumentExtensions.refreshState
 import com.android.identity.issuance.DocumentExtensions.state
 import com.android.identity.issuance.CredentialFormat
 import com.android.identity.issuance.CredentialRequest
 import com.android.identity.issuance.DocumentExtensions.documentSlot
 import com.android.identity.issuance.DocumentExtensions.issuingAuthorityConfiguration
+import com.android.identity.issuance.DocumentExtensions.walletDocumentMetadata
 import com.android.identity.issuance.IssuingAuthority
 import com.android.identity.issuance.IssuingAuthorityException
 import com.android.identity.issuance.KeyPossessionProof
@@ -167,7 +170,7 @@ class DocumentModel(
         if (document == null) {
             Logger.w(TAG, "No document with id ${documentInfo.documentId}")
         } else {
-            documentStore.deleteDocument(document.name)
+            documentStore.deleteDocument(document.identifier)
         }
     }
 
@@ -229,6 +232,12 @@ class DocumentModel(
     }
 
     private suspend fun createCardForDocument(document: Document): DocumentInfo? {
+        /*
+        // TODO: we may want to do this in future:
+        if (!document.walletDocumentMetadata.provisioned) {
+            return null
+        }
+        */
         val documentConfiguration = document.documentConfiguration
         val options = BitmapFactory.Options()
         options.inMutable = true
@@ -250,7 +259,7 @@ class DocumentModel(
         val data = document.renderDocumentDetails(context, documentTypeRepository)
 
         val keyInfos = mutableStateListOf<CredentialInfo>()
-        for (credential in document.certifiedCredentials) {
+        for (credential in document.getCertifiedCredentials()) {
             when (credential) {
                 is MdocCredential -> {
                     keyInfos.add(createCardInfoForMdocCredential(credential))
@@ -271,7 +280,7 @@ class DocumentModel(
         }
 
         var attentionNeeded = false
-        val statusString = when (document.state.condition) {
+        val statusString = when (document.state!!.condition) {
             DocumentCondition.NO_SUCH_DOCUMENT -> getStr(R.string.document_model_status_no_such_document)
             DocumentCondition.PROOFING_REQUIRED -> getStr(R.string.document_model_status_proofing_required)
             DocumentCondition.PROOFING_PROCESSING -> getStr(R.string.document_model_status_proofing_processing)
@@ -300,7 +309,7 @@ class DocumentModel(
         }
 
         return DocumentInfo(
-            documentId = document.name,
+            documentId = document.identifier,
             attentionNeeded = attentionNeeded,
             requireUserAuthenticationToViewDocument = documentConfiguration.requireUserAuthenticationToViewDocument,
             name = documentConfiguration.displayName,
@@ -309,7 +318,7 @@ class DocumentModel(
             typeName = documentConfiguration.typeDisplayName,
             issuerLogo = issuerLogo,
             documentArtwork = documentBitmap,
-            lastRefresh = document.state.timestamp,
+            lastRefresh = document.state!!.timestamp,
             status = statusString,
             attributes = data.attributes,
             credentialInfos = keyInfos,
@@ -435,6 +444,9 @@ class DocumentModel(
 
         kvPairs.put("Issuer Provided Data", "${mdocCredential.issuerProvidedData.size} bytes")
 
+        val replacement =
+            mdocCredential.document.getReplacementCredentialFor(mdocCredential.identifier)
+
         return CredentialInfo(
             format = CredentialFormat.MDOC_MSO,
             description = "ISO/IEC 18013-5:2021 mdoc MSO",
@@ -443,7 +455,7 @@ class DocumentModel(
             validFrom = mso.validFrom,
             validUntil = mso.validUntil,
             expectedUpdate = mso.expectedUpdate,
-            replacementPending = mdocCredential.replacement != null,
+            replacementPending = replacement != null,
             details = kvPairs
         )
     }
@@ -469,6 +481,9 @@ class DocumentModel(
 
         kvPairs.put("Issuer Provided Data", "${sdJwtVcCredential.issuerProvidedData.size} bytes")
 
+        val replacement =
+            sdJwtVcCredential.document.getReplacementCredentialFor(sdJwtVcCredential.identifier)
+
         return CredentialInfo(
             format = CredentialFormat.SD_JWT_VC,
             description = "IETF SD-JWT Verifiable Credential",
@@ -477,7 +492,7 @@ class DocumentModel(
             validFrom = body.timeValidityBegin,
             validUntil = body.timeValidityEnd,
             expectedUpdate = null,
-            replacementPending = sdJwtVcCredential.replacement != null,
+            replacementPending = replacement != null,
             details = kvPairs
         )
     }
@@ -487,22 +502,28 @@ class DocumentModel(
         createCardForDocument(document)?.let { documentInfos.add(it) }
     }
 
-    private fun removeDocument(document: Document) {
-        val cardIndex = documentInfos.indexOfFirst { it.documentId == document.name }
+    private fun removeDocument(documentId: String) {
+        val cardIndex = documentInfos.indexOfFirst { it.documentId == documentId }
         if (cardIndex < 0) {
-            Logger.w(TAG, "No card for document with id ${document.name}")
+            Logger.w(TAG, "No card for document with id $documentId")
             return
         }
         documentInfos.removeAt(cardIndex)
     }
 
     private suspend fun updateDocument(document: Document) {
-        val cardIndex = documentInfos.indexOfFirst { it.documentId == document.name }
-        if (cardIndex < 0) {
-            Logger.w(TAG, "No card for document with id ${document.name}")
-            return
+        val info = createCardForDocument(document)
+        val cardIndex = documentInfos.indexOfFirst { it.documentId == document.identifier }
+        if (cardIndex >= 0) {
+            if (info == null) {
+                documentInfos.removeAt(cardIndex)
+            } else {
+                documentInfos[cardIndex] = info
+            }
+        } else if (info != null) {
+            // metadata was not ready when the document was added, add it now
+            documentInfos.add(info)
         }
-        createCardForDocument(document)?.let { documentInfos[cardIndex] = it }
     }
 
     private suspend fun updateCredman() {
@@ -533,28 +554,37 @@ class DocumentModel(
             }
 
             documentStore.eventFlow
-                .onEach { (eventType, document) ->
-                    Logger.i(TAG, "DocumentStore event $eventType ${document.name}")
-                    when (eventType) {
-                        DocumentStore.EventType.DOCUMENT_ADDED -> {
-                            addDocument(document)
-                            if (!issuingAuthorityIdSet.contains(document.issuingAuthorityIdentifier)) {
-                                issuingAuthorityIdSet.add(document.issuingAuthorityIdentifier)
-                                startListeningForNotifications(document.issuingAuthorityIdentifier)
+                .onEach { event ->
+                    Logger.i(TAG, "DocumentStore event ${event::class.simpleName} ${event.documentId}")
+                    when (event) {
+                        is DocumentAdded -> {
+                            val document = documentStore.lookupDocument(event.documentId)
+                            // Could have been deleted before the event is handled
+                            if (document == null) {
+                                Logger.w(TAG, "Document '${event.documentId}' deleted before it could be processed")
+                            } else {
+                                addDocument(document)
+                                val metadata = document.walletDocumentMetadata
+                                val issuingAuthorityIdentifier =
+                                    metadata.issuingAuthorityIdentifier
+                                if (!issuingAuthorityIdSet.contains(issuingAuthorityIdentifier)) {
+                                    issuingAuthorityIdSet.add(issuingAuthorityIdentifier)
+                                    startListeningForNotifications(issuingAuthorityIdentifier)
+                                }
+                                updateCredman()
                             }
+                        }
+
+                        is DocumentDeleted -> {
+                            removeDocument(event.documentId)
                             updateCredman()
                         }
 
-                        DocumentStore.EventType.DOCUMENT_DELETED -> {
-                            removeDocument(document)
-                            updateCredman()
-                        }
-
-                        DocumentStore.EventType.DOCUMENT_UPDATED -> {
+                        is DocumentUpdated -> {
                             // Store the name rather than instance to handle the case that the
                             // document may have been deleted between now and the time it's
                             // processed below...
-                            batchedUpdateFlow.emit(document.name)
+                            batchedUpdateFlow.emit(event.documentId)
                         }
                     }
                 }
@@ -564,7 +594,7 @@ class DocumentModel(
                 .onEach {
                     it.distinct().forEach {
                         documentStore.lookupDocument(it)?.let {
-                            Logger.i(TAG, "Processing delayed update event ${it.name}")
+                            Logger.i(TAG, "Processing delayed update event ${it.identifier}")
                             updateDocument(it)
                             updateCredman()
                         }
@@ -648,7 +678,7 @@ class DocumentModel(
         CoroutineScope(Dispatchers.IO).launch {
             for (documentId in documentStore.listDocuments()) {
                 documentStore.lookupDocument(documentId)?.let { document ->
-                    Logger.i(TAG, "Periodic sync for ${document.name}")
+                    Logger.i(TAG, "Periodic sync for ${document.identifier}")
                     try {
                         syncDocumentWithIssuer(document)
                     } catch (e: Throwable) {
@@ -686,45 +716,45 @@ class DocumentModel(
     }
 
     private suspend fun syncDocumentWithIssuerCore(document: Document) {
-        Logger.i(TAG, "syncDocumentWithIssuer: Refreshing ${document.name}")
-
+        Logger.i(TAG, "syncDocumentWithIssuer: Refreshing ${document.identifier}")
+        val metadata = document.walletDocumentMetadata
         val issuer = walletServerProvider.getIssuingAuthority(document.issuingAuthorityIdentifier)
 
         // Download latest issuer configuration.
-        document.issuingAuthorityConfiguration = issuer.getConfiguration()
+        metadata.setIssuingAuthorityConfiguration(issuer.getConfiguration())
 
         // OK, let's see what's new...
-        document.refreshState(walletServerProvider)
+        metadata.refreshState(walletServerProvider)
 
         // It's possible the document was remote deleted...
-        if (document.state.condition == DocumentCondition.NO_SUCH_DOCUMENT) {
-            Logger.i(TAG, "syncDocumentWithIssuer: ${document.name} was deleted")
+        if (document.state!!.condition == DocumentCondition.NO_SUCH_DOCUMENT) {
+            Logger.i(TAG, "syncDocumentWithIssuer: ${document.identifier} was deleted")
             walletApplication.postNotificationForDocument(
                 document,
                 walletApplication.applicationContext.getString(
                     R.string.notifications_document_deleted_by_issuer
                 )
             )
-            documentStore.deleteDocument(document.name)
+            documentStore.deleteDocument(document.identifier)
             return
         }
 
         // It's possible a new configuration is available...
-        if (document.state.condition == DocumentCondition.CONFIGURATION_AVAILABLE) {
-            Logger.i(TAG, "syncDocumentWithIssuer: ${document.name} has a new configuration")
+        if (document.state!!.condition == DocumentCondition.CONFIGURATION_AVAILABLE) {
+            Logger.i(TAG, "syncDocumentWithIssuer: ${document.identifier} has a new configuration")
 
             // New configuration (= PII) is available, nuke all existing credentials
             //
-            document.certifiedCredentials.forEach { it.delete() }
-            document.pendingCredentials.forEach { it.delete() }
-            document.documentConfiguration = issuer.getDocumentConfiguration(
-                document.documentIdentifier
-            )
+            document.getCredentials().forEach { document.deleteCredential(it.identifier) }
+            metadata.setDocumentConfiguration(
+                issuer.getDocumentConfiguration(metadata.documentIdentifier))
 
             // Notify the user that the document is either ready or an update has been downloaded.
             if (document.numDocumentConfigurationsDownloaded == 0L) {
                 if (document.documentConfiguration.directAccessConfiguration != null) {
-                    document.documentSlot = DirectAccess.allocateDocumentSlot()
+                    document.walletDocumentMetadata.setDocumentSlot(
+                        DirectAccess.allocateDocumentSlot()
+                    )
                 }
                 walletApplication.postNotificationForDocument(
                     document,
@@ -740,14 +770,14 @@ class DocumentModel(
                     )
                 )
             }
-            document.numDocumentConfigurationsDownloaded += 1
+            metadata.incrementNumDocumentConfigurationsDownloaded()
 
-            document.refreshState(walletServerProvider)
+            metadata.refreshState(walletServerProvider)
         }
 
         // If the document is in the READY state, we can request credentials. See if we need
         // to do that.
-        if (document.state.condition == DocumentCondition.READY) {
+        if (document.state!!.condition == DocumentCondition.READY) {
             val docConf = document.documentConfiguration
 
             if (docConf.mdocConfiguration != null) {
@@ -757,15 +787,14 @@ class DocumentModel(
                     WalletApplication.CREDENTIAL_DOMAIN_MDOC,
                     CredentialFormat.MDOC_MSO
                 ) { credentialToReplace, credentialDomain, secureArea, createKeySettings ->
-                    MdocCredential(
+                    MdocCredential.create(
                         document,
                         credentialToReplace,
                         credentialDomain,
                         secureArea,
                         docConf.mdocConfiguration!!.docType,
-                    ).apply {
-                        generateKey(createKeySettings)
-                    }
+                        createKeySettings
+                    )
                 }
             }
 
@@ -794,41 +823,42 @@ class DocumentModel(
                     WalletApplication.CREDENTIAL_DOMAIN_SD_JWT_VC,
                     CredentialFormat.SD_JWT_VC
                 ) { credentialToReplace, credentialDomain, secureArea, createKeySettings ->
-                    KeyBoundSdJwtVcCredential(
+                    KeyBoundSdJwtVcCredential.create(
                         document,
                         credentialToReplace,
                         credentialDomain,
                         secureArea,
                         configuration.vct,
-                    ).apply {
-                        generateKey(createKeySettings)
-                    }
+                        createKeySettings
+                    )
                 }
             }
         }
 
         // It's possible the request credentials have already been minted..
-        document.refreshState(walletServerProvider)
+        metadata.refreshState(walletServerProvider)
 
         // ... if so, download them.
         var lastCertified: DirectAccessCredential? = null
         var numCredentialsRefreshed = 0
-        if (document.state.numAvailableCredentials > 0) {
+        if (document.state!!.numAvailableCredentials > 0) {
             for (credentialData in issuer.getCredentials(document.documentIdentifier)) {
                 val pendingCredential = if (credentialData.secureAreaBoundKey == null) {
                     // Keyless credential
-                    KeylessSdJwtVcCredential(
+                    KeylessSdJwtVcCredential.create(
                         document,
                         null,
                         WalletApplication.CREDENTIAL_DOMAIN_SD_JWT_VC,
                         document.documentConfiguration.sdJwtVcDocumentConfiguration!!.vct
                     )
                 } else {
-                    document.pendingCredentials.find {
-                        if (it is DirectAccessCredential) it.attestation
-                            .publicKey.equals(credentialData.secureAreaBoundKey)
-                        else (it as SecureAreaBoundCredential).getAttestation()
-                            .publicKey.equals(credentialData.secureAreaBoundKey)
+                    document.getPendingCredentials().find {
+                        val attestation = if (it is DirectAccessCredential) {
+                            it.attestation
+                        } else {
+                            (it as SecureAreaBoundCredential).getAttestation()
+                        }
+                        attestation.publicKey == credentialData.secureAreaBoundKey
                     }
                 }
                 if (pendingCredential == null) {
@@ -846,7 +876,7 @@ class DocumentModel(
                 }
             }
             lastCertified?.setAsActiveCredential()
-            document.refreshState(walletServerProvider)
+            metadata.refreshState(walletServerProvider)
         }
     }
 
@@ -856,7 +886,7 @@ class DocumentModel(
         credentialDomain: String,
         credentialFormat: CredentialFormat,
         createCredential: suspend (
-            credentialToReplace: Credential?,
+            credentialToReplace: String?,
             credentialDomain: String,
             secureArea: SecureArea,
             createKeySettings: CreateKeySettings,
@@ -921,7 +951,8 @@ class DocumentModel(
                 false
             )
             val credentialRequests = mutableListOf<CredentialRequest>()
-            for (pendingCredential in document.pendingCredentials) {
+            val pendingCredentials = document.getPendingCredentials()
+            for (pendingCredential in pendingCredentials) {
                 credentialRequests.add(
                     CredentialRequest(
                         if (pendingCredential is DirectAccessCredential) {
@@ -954,12 +985,12 @@ class DocumentModel(
             )
             if (challenges.isNotEmpty()) {
                 val activity = this.activity!!
-                if (challenges.size != document.pendingCredentials.size) {
+                if (challenges.size != pendingCredentials.size) {
                     throw IllegalStateException("Unexpected number of possession challenges")
                 }
                 val possessionProofs = mutableListOf<KeyPossessionProof>()
                 withContext(Dispatchers.Main) {
-                    for (credData in document.pendingCredentials.zip(challenges)) {
+                    for (credData in pendingCredentials.zip(challenges)) {
                         val credential = credData.first as SecureAreaBoundCredential
                         val challenge = credData.second
                         val signature = signWithUnlock(

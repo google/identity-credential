@@ -3,7 +3,6 @@ package com.android.identity.sdjwt.credential
 import com.android.identity.cbor.CborBuilder
 import com.android.identity.cbor.DataItem
 import com.android.identity.cbor.MapBuilder
-import com.android.identity.credential.Credential
 import com.android.identity.credential.SecureAreaBoundCredential
 import com.android.identity.document.Document
 import com.android.identity.securearea.CreateKeySettings
@@ -17,6 +16,25 @@ import com.android.identity.securearea.SecureArea
 class KeyBoundSdJwtVcCredential : SecureAreaBoundCredential, SdJwtVcCredential {
     companion object {
         private const val TAG = "SdJwtVcCredential"
+
+        suspend fun create(
+            document: Document,
+            asReplacementForIdentifier: String?,
+            domain: String,
+            secureArea: SecureArea,
+            vct: String,
+            createKeySettings: CreateKeySettings
+        ): KeyBoundSdJwtVcCredential {
+            return KeyBoundSdJwtVcCredential(
+                document,
+                asReplacementForIdentifier,
+                domain,
+                secureArea,
+                vct
+            ).apply {
+                generateKey(createKeySettings)
+            }
+        }
     }
 
     /**
@@ -33,18 +51,19 @@ class KeyBoundSdJwtVcCredential : SecureAreaBoundCredential, SdJwtVcCredential {
      * [generateKey] providing [CreateKeySettings] must be called before using this object.
      *
      * @param document the document to add the credential to.
-     * @param asReplacementFor the credential this credential will replace, if not null
+     * @param asReplacementForIdentifier identifier of the credential this credential will replace,
+     *     if not null
      * @param domain the domain of the credential
      * @param secureArea the secure area for the authentication key associated with this credential.
      * @param vct the Verifiable Credential Type.
      */
-    constructor(
+    private constructor(
         document: Document,
-        asReplacementFor: Credential?,
+        asReplacementForIdentifier: String?,
         domain: String,
         secureArea: SecureArea,
         vct: String,
-    ) : super(document, asReplacementFor, domain, secureArea) {
+    ) : super(document, asReplacementForIdentifier, domain, secureArea) {
         this.vct = vct
     }
 

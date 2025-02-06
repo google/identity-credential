@@ -9,7 +9,6 @@ import com.android.identity.document.Document
 import com.android.identity.document.DocumentStore
 import com.android.identity.documenttype.DocumentTypeRepository
 import com.android.identity.mdoc.credential.MdocCredential
-import com.android.identity.storage.StorageTable
 import com.android.identity.storage.StorageTableSpec
 import com.android.identity.util.AndroidContexts
 import com.android.identity.util.Logger
@@ -72,7 +71,7 @@ private suspend fun updateCredman() {
         credmanIdTable.deleteAll()
         for (documentId in regData.documentStore.listDocuments()) {
             val document = regData.documentStore.lookupDocument(documentId) ?: continue
-            val mdocCredential = (document.certifiedCredentials.find { it is MdocCredential }
+            val mdocCredential = (document.getCertifiedCredentials().find { it is MdocCredential }
                 ?: continue) as MdocCredential
             val credentialType =
                 regData.documentTypeRepository.getDocumentTypeForMdoc(mdocCredential.docType)
@@ -87,9 +86,10 @@ private suspend fun updateCredman() {
                 )
             )
 
-            val cardArt = document.applicationData.getData("cardArt")
-            val nameSpacedData = document.applicationData.getNameSpacedData("documentData")
-            val displayName = document.applicationData.getString("displayName")
+            val documentMetadata = document.metadata
+            val cardArt = documentMetadata.cardArt!!.toByteArray()
+            val nameSpacedData = documentMetadata.nameSpacedData
+            val displayName = documentMetadata.displayName!!
 
             Logger.i(TAG, "exporting $displayName as $idCount")
 
@@ -130,7 +130,7 @@ private suspend fun updateCredman() {
                 options
             )
 
-            credmanIdTable.insert(idCount.toString(), document.name.encodeToByteString())
+            credmanIdTable.insert(idCount.toString(), document.identifier.encodeToByteString())
             entries.add(
                 IdentityCredentialEntry(
                     id = (idCount++).toLong(),
@@ -161,8 +161,8 @@ internal actual suspend fun defaultStartExportingCredentials(
 ) {
     val listeningJob = CoroutineScope(Dispatchers.IO).launch {
         documentStore.eventFlow
-            .onEach { (eventType, document) ->
-                Logger.i(TAG, "DocumentStore event $eventType ${document.name}")
+            .onEach { event ->
+                Logger.i(TAG, "DocumentStore event ${event::class.simpleName} ${event.documentId}")
                 try {
                     updateCredman()
                 } catch (e: Throwable) {

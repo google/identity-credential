@@ -80,7 +80,7 @@ private suspend fun mdocFindCredentialsForRequest(
     return result
 }
 
-private fun mdocFindCredentialInDocument(
+private suspend fun mdocFindCredentialInDocument(
     app: App,
     request: MdocRequest,
     now: Instant,
@@ -91,7 +91,7 @@ private fun mdocFindCredentialInDocument(
     } else {
         TestAppUtils.MDOC_CREDENTIAL_DOMAIN_NO_AUTH
     }
-    for (credential in document.certifiedCredentials) {
+    for (credential in document.getCertifiedCredentials()) {
         if (credential is MdocCredential && credential.docType == request.docType) {
             val credential = document.findCredential(
                 domain = domain,

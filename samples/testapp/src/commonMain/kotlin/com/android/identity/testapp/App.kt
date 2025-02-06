@@ -162,12 +162,13 @@ class App private constructor() {
         }
         val credentialFactory: CredentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(MdocCredential::class) {
-                document, dataItem -> MdocCredential(document).apply { deserialize(dataItem) }
+            document -> MdocCredential(document)
         }
         documentStore = DocumentStore(
             platformStorage(),
             secureAreaRepository,
-            credentialFactory
+            credentialFactory,
+            TestDocumentMetadata::create
         )
     }
 

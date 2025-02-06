@@ -88,7 +88,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         private val TAG = "MainActivity"
 
-        const val CREDENTIAL_ID = "mDL_Erika"
         const val AUTH_KEY_DOMAIN = "mdoc"
 
         const val MDL_DOCTYPE = "org.iso.18013.5.1.mDL"
@@ -98,18 +97,19 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var transferHelper: TransferHelper
 
+    private var documentId: String? = null
+
     private suspend fun provisionDocuments() {
-        if (transferHelper.documentStore.lookupDocument(CREDENTIAL_ID) == null) {
+        val list = transferHelper.documentStore.listDocuments()
+        if (list.isEmpty()) {
             provisionDocument()
         } else {
-            Logger.d(TAG, "Already have document $CREDENTIAL_ID")
+            documentId = list[0]
+            Logger.d(TAG, "Already have document $documentId")
         }
     }
 
     private suspend fun provisionDocument() {
-        val document = transferHelper.documentStore.createDocument(CREDENTIAL_ID)
-        transferHelper.documentStore.addDocument(document)
-
         val baos = ByteArrayOutputStream()
         BitmapFactory.decodeResource(applicationContext.resources, R.drawable.img_erika_portrait)
             .compress(Bitmap.CompressFormat.JPEG, 50, baos)
@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
         val expiryDate = Instant.fromEpochMilliseconds(
             now.toEpochMilliseconds() + 5 * 365 * 24 * 3600 * 1000L)
 
-        val documentData = NameSpacedData.Builder()
+        val nameSpacedData = NameSpacedData.Builder()
             .putEntryString(MDL_NAMESPACE, "given_name", "Erika")
             .putEntryString(MDL_NAMESPACE, "family_name", "Mustermann")
             .putEntryByteString(MDL_NAMESPACE, "portrait", portrait)
@@ -133,8 +133,19 @@ class MainActivity : ComponentActivity() {
             .putEntryBoolean(MDL_NAMESPACE, "age_over_18", true)
             .putEntryBoolean(MDL_NAMESPACE, "age_over_21", true)
             .build()
-        document.applicationData.setNameSpacedData("documentData", documentData)
-        document.applicationData.setString("docType", MDL_DOCTYPE)
+
+        val documentData = PreconsentDocumentMetadata.Data(
+            displayName = "Erika's Driver License",
+            typeDisplayName = "Preconcent Document",
+            cardArt = null,
+            issuerLogo = null,
+            namespacedData = nameSpacedData
+        )
+
+        val document = transferHelper.documentStore.createDocument { metadata ->
+            (metadata as PreconsentDocumentMetadata).init(documentData)
+        }
+        documentId = document.identifier
 
         // Create Credentials and MSOs, make sure they're valid for a long time
         val timeSigned = now
@@ -144,15 +155,14 @@ class MainActivity : ComponentActivity() {
 
         // Create three credentials and certify them
         for (n in 0..2) {
-            val pendingCredential = MdocCredential(
+            val pendingCredential = MdocCredential.create(
                 document,
                 null,
                 AUTH_KEY_DOMAIN,
                 transferHelper.secureAreaRepository.getImplementation(AndroidKeystoreSecureArea.IDENTIFIER)!!,
-                MDL_DOCTYPE
-            ).apply {
-                generateKey(AndroidKeystoreCreateKeySettings.Builder("".toByteArray()).build())
-            }
+                MDL_DOCTYPE,
+                AndroidKeystoreCreateKeySettings.Builder("".toByteArray()).build()
+            )
 
             // Generate an MSO and issuer-signed data for this credentials.
             val msoGenerator = MobileSecurityObjectGenerator(
@@ -166,7 +176,7 @@ class MainActivity : ComponentActivity() {
                 validUntil,
                 null)
             val issuerNameSpaces = MdocUtil.generateIssuerNameSpaces(
-                documentData,
+                nameSpacedData,
                 Random.Default,
                 16,
                 null
@@ -214,7 +224,7 @@ class MainActivity : ComponentActivity() {
                 validFrom,
                 validUntil)
         }
-        Logger.d(TAG, "Created document with name ${document.name}")
+        Logger.d(TAG, "Created document with name ${document.identifier}")
     }
 
     private lateinit var documentSigningKey: EcPrivateKey

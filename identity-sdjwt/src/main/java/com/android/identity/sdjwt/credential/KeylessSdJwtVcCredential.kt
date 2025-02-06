@@ -18,17 +18,16 @@ class KeylessSdJwtVcCredential : Credential, SdJwtVcCredential {
      * @param domain the domain of the credential
      * @param vct the Verifiable Credential Type.
      */
-    constructor(
+    private constructor(
         document: Document,
-        asReplacementFor: Credential?,
+        asReplacementForIdentifier: String?,
         domain: String,
         vct: String,
-    ) : super(document, asReplacementFor, domain) {
+    ) : super(document, asReplacementForIdentifier, domain) {
         this.vct = vct
         // Only the leaf constructors for keyless credentials should add the credential to
         // the document.
         check (this::class == KeylessSdJwtVcCredential::class)
-        addToDocument()
     }
 
     /**
@@ -47,5 +46,23 @@ class KeylessSdJwtVcCredential : Credential, SdJwtVcCredential {
     override fun addSerializedData(builder: MapBuilder<CborBuilder>) {
         super.addSerializedData(builder)
         builder.put("vct", vct)
+    }
+
+    companion object {
+        suspend fun create(
+            document: Document,
+            asReplacementForIdentifier: String?,
+            domain: String,
+            vct: String
+        ): KeylessSdJwtVcCredential {
+            return KeylessSdJwtVcCredential(
+                document,
+                asReplacementForIdentifier,
+                domain,
+                vct
+            ).apply {
+                addToDocument()
+            }
+        }
     }
 }

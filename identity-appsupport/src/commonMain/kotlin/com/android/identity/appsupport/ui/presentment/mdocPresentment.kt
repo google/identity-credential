@@ -191,7 +191,7 @@ private suspend fun calcDocument(
 
     val staticAuthData = StaticAuthDataParser(credential.issuerProvidedData).parse()
 
-    val documentData = credential.document.applicationData.getNameSpacedData("documentData")
+    val documentData = credential.document.metadata.nameSpacedData
     val mergedIssuerNamespaces = MdocUtil.mergeIssuerNamesSpaces(
         nsAndDataElements,
         documentData,

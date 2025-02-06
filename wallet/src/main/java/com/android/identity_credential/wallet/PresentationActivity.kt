@@ -479,7 +479,7 @@ class PresentationActivity : FragmentActivity() {
         super.onDestroy()
     }
 
-    private fun documentGetValidMdocCredentialIfAvailable(
+    private suspend fun documentGetValidMdocCredentialIfAvailable(
         document: Document,
         docType: String,
         now: Instant,
