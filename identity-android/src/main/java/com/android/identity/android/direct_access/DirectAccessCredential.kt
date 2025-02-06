@@ -88,8 +88,8 @@ class DirectAccessCredential: Credential {
      * Constructs a new [DirectAccessCredential].
      *
      * @param document the document to add the credential to.
-     * @param asReplacementFor the credential this credential will replace, if
-     *      not null
+     * @param asReplacementForIdentifier identifier of the credential this credential will replace,
+     *      if not null
      * @param domain the domain of the credential
      * @param docType the docType of the credential
      * @param documentSlot the slot in the Direct Access applet that the document
@@ -97,22 +97,17 @@ class DirectAccessCredential: Credential {
      */
     constructor(
         document: Document,
-        asReplacementFor: Credential?,
+        asReplacementForIdentifier: String?,
         domain: String,
         docType: String,
         documentSlot: Int
-    ) : super(document, asReplacementFor, domain) {
+    ) : super(document, asReplacementForIdentifier, domain) {
         this.docType = docType
         this.documentSlot = documentSlot
 
         DirectAccess.createCredential(this.documentSlot).let {
             signingCert = it.first
             encryptedPresentationData = it.second
-        }
-
-        // Only the leaf constructor should add the credential to the document.
-        if (this::class == DirectAccessCredential::class) {
-            addToDocument()
         }
     }
 

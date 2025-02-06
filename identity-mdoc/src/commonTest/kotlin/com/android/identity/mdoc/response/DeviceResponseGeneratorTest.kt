@@ -81,7 +81,7 @@ class DeviceResponseGeneratorTest {
         }
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(MdocCredential::class) {
-                document, dataItem -> MdocCredential(document).apply { deserialize(dataItem) }
+            document -> MdocCredential(document)
         }
     }
 
@@ -93,13 +93,12 @@ class DeviceResponseGeneratorTest {
         val documentStore = DocumentStore(
             storage,
             secureAreaRepository,
-            credentialFactory
+            credentialFactory,
+            TestDocumentMetadata::create
         )
 
         // Create the document...
-        document = documentStore.createDocument(
-            "testDocument"
-        )
+        document = documentStore.createDocument()
         val nameSpacedData = NameSpacedData.Builder()
             .putEntryString("ns1", "foo1", "bar1")
             .putEntryString("ns1", "foo2", "bar2")
@@ -107,7 +106,7 @@ class DeviceResponseGeneratorTest {
             .putEntryString("ns2", "bar1", "foo1")
             .putEntryString("ns2", "bar2", "foo2")
             .build()
-        document.applicationData.setNameSpacedData("documentData", nameSpacedData)
+        document.testMetadata.setNameSpacedData(nameSpacedData)
         val overrides: MutableMap<String, Map<String, ByteArray>> = HashMap()
         val overridesForNs1: MutableMap<String, ByteArray> = HashMap()
         overridesForNs1["foo3"] = Cbor.encode(Tstr("bar3_override"))
@@ -122,19 +121,16 @@ class DeviceResponseGeneratorTest {
         timeSigned = Instant.fromEpochSeconds(nowSeconds)
         timeValidityBegin = Instant.fromEpochSeconds(nowSeconds + 3600)
         timeValidityEnd = Instant.fromEpochSeconds(nowSeconds + 10 * 86400)
-        mdocCredential = MdocCredential(
+        mdocCredential = MdocCredential.create(
             document,
             null,
             AUTH_KEY_DOMAIN,
             secureAreaRepository.getImplementation(SoftwareSecureArea.IDENTIFIER)!!,
-            "org.iso.18013.5.1.mDL"
-        ).apply {
-            generateKey(
-                SoftwareCreateKeySettings.Builder()
-                    .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
-                    .build(),
-            )
-        }
+            "org.iso.18013.5.1.mDL",
+            SoftwareCreateKeySettings.Builder()
+                .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
+                .build()
+        )
         assertFalse(mdocCredential.isCertified)
 
         // Generate an MSO and issuer-signed data for this authentication key.
@@ -237,7 +233,7 @@ class DeviceResponseGeneratorTest {
         val mergedIssuerNamespaces: Map<String, List<ByteArray>> =
             MdocUtil.mergeIssuerNamesSpaces(
                 request,
-                document.applicationData.getNameSpacedData("documentData"),
+                document.testMetadata.nameSpacedData,
                 staticAuthData
             )
         val deviceResponseGenerator = DeviceResponseGenerator(0)
@@ -320,7 +316,7 @@ class DeviceResponseGeneratorTest {
         val eReaderKey = Crypto.createEcPrivateKey(EcCurve.P256)
         val mergedIssuerNamespaces: Map<String, List<ByteArray>> = MdocUtil.mergeIssuerNamesSpaces(
             request,
-            document.applicationData.getNameSpacedData("documentData"),
+            document.testMetadata.nameSpacedData,
             staticAuthData
         )
         val deviceResponseGenerator = DeviceResponseGenerator(0)
@@ -369,7 +365,7 @@ class DeviceResponseGeneratorTest {
             .parse()
         val mergedIssuerNamespaces: Map<String, List<ByteArray>> = MdocUtil.mergeIssuerNamesSpaces(
             request,
-            document.applicationData.getNameSpacedData("documentData"),
+            document.testMetadata.nameSpacedData,
             staticAuthData
         )
 
@@ -506,7 +502,7 @@ class DeviceResponseGeneratorTest {
         val mergedIssuerNamespaces: Map<String, List<ByteArray>> =
             MdocUtil.mergeIssuerNamesSpaces(
                 request,
-                document.applicationData.getNameSpacedData("documentData"),
+                document.testMetadata.nameSpacedData,
                 staticAuthData
             )
         val deviceResponseGenerator = DeviceResponseGenerator(0)

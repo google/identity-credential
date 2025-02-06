@@ -253,11 +253,12 @@ private fun ConsentPrompt(
     coroutineScope: CoroutineScope,
     presentmentModel: PresentmentModel
 ) {
+    val documentMetadata = presentmentModel.consentData.document.metadata
     val consentDocument = remember {
         ConsentDocument(
-            name = presentmentModel.consentData.document.applicationData.getString("displayName"),
-            description = presentmentModel.consentData.document.applicationData.getString("displayType"),
-            cardArt = presentmentModel.consentData.document.applicationData.getData("cardArt")
+            name = documentMetadata.displayName!!,
+            description = documentMetadata.typeDisplayName!!,
+            cardArt = documentMetadata.cardArt!!.toByteArray()
         )
     }
     // TODO: use sheetGesturesEnabled=false when available - see
@@ -300,11 +301,12 @@ private fun DocumentPickerDialog(
 ) {
     val radioOptions = remember {
         presentmentModel.availableDocuments.map {
+            val documentMetadata = it.metadata
             DocumentPickerData(
                 document = it,
-                displayName = it.applicationData.getString("displayName"),
-                displayType = it.applicationData.getString("displayType"),
-                cardArt = it.applicationData.getData("cardArt").decodeToImageBitmap()
+                displayName = documentMetadata.displayName!!,
+                displayType = documentMetadata.typeDisplayName!!,
+                cardArt = documentMetadata.cardArt!!.toByteArray().decodeToImageBitmap()
             )
         }
     }

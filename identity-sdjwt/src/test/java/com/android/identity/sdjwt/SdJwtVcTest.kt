@@ -10,6 +10,7 @@ import com.android.identity.crypto.X500Name
 import com.android.identity.crypto.X509KeyUsage
 import com.android.identity.document.Document
 import com.android.identity.document.DocumentStore
+import com.android.identity.document.SimpleDocumentMetadata
 import com.android.identity.sdjwt.SdJwtVerifiableCredential.AttributeNotDisclosedException
 import com.android.identity.sdjwt.credential.KeyBoundSdJwtVcCredential
 import com.android.identity.sdjwt.presentation.SdJwtVerifiablePresentation
@@ -63,7 +64,7 @@ class SdJwtVcTest {
         }
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(KeyBoundSdJwtVcCredential::class) {
-            document, dataItem ->  KeyBoundSdJwtVcCredential(document).apply { deserialize(dataItem) }
+            document ->  KeyBoundSdJwtVcCredential(document)
         }
     }
 
@@ -71,30 +72,27 @@ class SdJwtVcTest {
         val documentStore = DocumentStore(
             storage,
             secureAreaRepository,
-            credentialFactory
+            credentialFactory,
+            SimpleDocumentMetadata::create
         )
 
         // Create the credential on the holder device...
-        document = documentStore.createDocument(
-            "testDocument",
-        )
+        document = documentStore.createDocument()
 
         // Create an authentication key...
         timeSigned = Clock.System.now()
         timeValidityBegin = timeSigned.plus(1.hours)
         timeValidityEnd = timeSigned.plus(10.days)
-        credential = KeyBoundSdJwtVcCredential(
+        credential = KeyBoundSdJwtVcCredential.create(
             document,
             null,
             "domain",
             secureAreaRepository.getImplementation(SoftwareSecureArea.IDENTIFIER)!!,
             "IdentityCredential",
-        ).apply {
-            generateKey(SoftwareCreateKeySettings.Builder()
+            SoftwareCreateKeySettings.Builder()
                 .setKeyPurposes(setOf(KeyPurpose.SIGN, KeyPurpose.AGREE_KEY))
-                .build(),
-            )
-        }
+                .build()
+        )
 
         // at the issuer, start creating the credential...
         val identityAttributes = buildJsonObject {

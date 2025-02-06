@@ -32,7 +32,7 @@ import com.android.identity.crypto.Algorithm
 import com.android.identity.crypto.Crypto
 import com.android.identity.crypto.EcCurve
 import com.android.identity.crypto.EcPublicKeyDoubleCoordinate
-import com.android.identity.issuance.DocumentExtensions.documentConfiguration
+import com.android.identity.issuance.WalletDocumentMetadata
 import com.android.identity.mdoc.request.DeviceRequestParser
 import com.android.identity.mdoc.response.DeviceResponseGenerator
 import com.android.identity.mdoc.util.MdocUtil
@@ -410,6 +410,7 @@ class CredmanPresentationActivity : FragmentActivity() {
         websiteOrigin: String?,
         encodedSessionTranscript: ByteArray,
     ): ByteArray {
+        val documentConfiguration = (mdocCredential.document.metadata as WalletDocumentMetadata).documentConfiguration
         val documentCborBytes = showMdocPresentmentFlow(
             activity = this@CredmanPresentationActivity,
             request = MdocRequest(
@@ -418,9 +419,9 @@ class CredmanPresentationActivity : FragmentActivity() {
                 docType = mdocCredential.docType
             ),
             document = ConsentDocument(
-                name = mdocCredential.document.documentConfiguration.displayName,
-                description = mdocCredential.document.documentConfiguration.typeDisplayName,
-                cardArt = mdocCredential.document.documentConfiguration.cardArt,
+                name = documentConfiguration.displayName,
+                description = documentConfiguration.typeDisplayName,
+                cardArt = documentConfiguration.cardArt,
             ),
             trustPoint = trustPoint,
             credential = mdocCredential,

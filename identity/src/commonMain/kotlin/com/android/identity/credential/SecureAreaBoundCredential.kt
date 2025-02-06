@@ -31,8 +31,23 @@ import com.android.identity.securearea.SecureArea
 open class SecureAreaBoundCredential : Credential {
     companion object {
         private const val TAG = "SecureAreaBoundCredential"
-        // This is to avoid collisions with other uses of the Secure Area.
-        private const val SECURE_AREA_ALIAS_PREFIX = "SecureAreaBoundCredential_"
+
+        suspend fun create(
+            document: Document,
+            asReplacementForIdentifier: String?,
+            domain: String,
+            secureArea: SecureArea,
+            createKeySettings: CreateKeySettings
+        ): SecureAreaBoundCredential {
+            return SecureAreaBoundCredential(
+                document,
+                asReplacementForIdentifier,
+                domain,
+                secureArea
+            ).apply {
+                generateKey(createKeySettings)
+            }
+        }
     }
 
     /**
@@ -41,16 +56,17 @@ open class SecureAreaBoundCredential : Credential {
      * [generateKey] providing [CreateKeySettings] must be called before using this object.
      *
      * @param document the document to add the credential to.
-     * @param asReplacementFor the credential this credential will replace, if not null
+     * @param asReplacementForIdentifier identifier of the credential this credential will replace,
+     *      if not null
      * @param domain the domain of the credential
      * @param secureArea the secure area for the authentication key associated with this credential.
      */
-    constructor(
+    protected constructor(
         document: Document,
-        asReplacementFor: Credential?,
+        asReplacementForIdentifier: String?,
         domain: String,
         secureArea: SecureArea,
-    ) : super(document, asReplacementFor, domain) {
+    ) : super(document, asReplacementForIdentifier, domain) {
         this.secureArea = secureArea
     }
 
@@ -60,7 +76,7 @@ open class SecureAreaBoundCredential : Credential {
      *
      * @param createKeySettings [CreateKeySettings] that are used to create the key.
      */
-    suspend fun generateKey(createKeySettings: CreateKeySettings) {
+    protected suspend fun generateKey(createKeySettings: CreateKeySettings) {
         alias = secureArea.createKey(null, createKeySettings).alias
         addToDocument()
     }
@@ -80,7 +96,7 @@ open class SecureAreaBoundCredential : Credential {
         super.deserialize(dataItem)
         alias = dataItem["alias"].asTstr
         val secureAreaIdentifier = dataItem["secureAreaIdentifier"].asTstr
-        secureArea = document.secureAreaRepository.getImplementation(secureAreaIdentifier)
+        secureArea = document.store.secureAreaRepository.getImplementation(secureAreaIdentifier)
             ?: throw IllegalStateException("Unknown Secure Area $secureAreaIdentifier")
     }
 

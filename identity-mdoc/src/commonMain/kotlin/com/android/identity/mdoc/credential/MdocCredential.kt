@@ -15,6 +15,7 @@
  */
 package com.android.identity.mdoc.credential
 
+import com.android.identity.asn1.ASN1ObjectIdentifier
 import com.android.identity.cbor.CborBuilder
 import com.android.identity.cbor.DataItem
 import com.android.identity.cbor.MapBuilder
@@ -35,6 +36,25 @@ import com.android.identity.securearea.SecureArea
 class MdocCredential : SecureAreaBoundCredential {
     companion object {
         private const val TAG = "MdocCredential"
+
+        suspend fun create(
+            document: Document,
+            asReplacementForIdentifier: String?,
+            domain: String,
+            secureArea: SecureArea,
+            docType: String,
+            createKeySettings: CreateKeySettings
+        ): MdocCredential {
+            return MdocCredential(
+                document,
+                asReplacementForIdentifier,
+                domain,
+                secureArea,
+                docType
+            ).apply {
+                generateKey(createKeySettings)
+            }
+        }
     }
 
     /**
@@ -51,13 +71,13 @@ class MdocCredential : SecureAreaBoundCredential {
      *
      * [SecureAreaBoundCredential.generateKey] must be called before using this object.
      */
-    constructor(
+    private constructor(
         document: Document,
-        asReplacementFor: Credential?,
+        asReplacementForIdentifier: String?,
         domain: String,
         secureArea: SecureArea,
         docType: String
-    ) : super(document, asReplacementFor, domain, secureArea) {
+    ) : super(document, asReplacementForIdentifier, domain, secureArea) {
         this.docType = docType
     }
 

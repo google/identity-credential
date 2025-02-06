@@ -21,8 +21,8 @@ import com.android.identity.android.securearea.AndroidKeystoreCreateKeySettings
 import com.android.identity.android.securearea.AndroidKeystoreSecureArea
 import com.android.identity.credential.CredentialFactory
 import com.android.identity.credential.SecureAreaBoundCredential
-import com.android.identity.document.Document
 import com.android.identity.document.DocumentStore
+import com.android.identity.document.SimpleDocumentMetadata
 import com.android.identity.securearea.SecureAreaRepository
 import com.android.identity.storage.Storage
 import com.android.identity.storage.android.AndroidStorage
@@ -53,31 +53,31 @@ class AndroidKeystoreSecureAreaDocumentStoreTest {
         }
         credentialFactory = CredentialFactory()
         credentialFactory.addCredentialImplementation(SecureAreaBoundCredential::class) {
-            document, dataItem -> SecureAreaBoundCredential(document).apply { deserialize(dataItem) }
+            document -> SecureAreaBoundCredential(document)
         }
     }
 
     @Test
     fun testBasic() = runBlocking {
-        val documentStore = DocumentStore(storage, secureAreaRepository, credentialFactory)
-        var document: Document? = documentStore.createDocument(
-            "testDocument"
+        val documentStore = DocumentStore(
+            storage = storage,
+            secureAreaRepository = secureAreaRepository,
+            credentialFactory = credentialFactory,
+            documentMetadataFactory = SimpleDocumentMetadata::create
         )
-        documentStore.addDocument(document!!)
-        Assert.assertEquals("testDocument", document!!.name)
+        val document = documentStore.createDocument()
 
         // Create pending credential and check its attestation
         val authKeyChallenge = byteArrayOf(20, 21, 22)
         val secureArea =
             secureAreaRepository.getImplementation(AndroidKeystoreSecureArea.IDENTIFIER)
-        val pendingCredential = SecureAreaBoundCredential(
+        val pendingCredential = SecureAreaBoundCredential.create(
             document,
             null,
             CREDENTIAL_DOMAIN,
-            secureArea!!
-        ).apply {
-            generateKey(AndroidKeystoreCreateKeySettings.Builder(authKeyChallenge).build())
-        }
+            secureArea!!,
+            AndroidKeystoreCreateKeySettings.Builder(authKeyChallenge).build()
+        )
         Assert.assertFalse(pendingCredential.isCertified)
         val attestation = pendingCredential.getAttestation()
         val parser =
@@ -94,21 +94,9 @@ class AndroidKeystoreSecureAreaDocumentStoreTest {
         }
 
         // Check we can load the document...
-        document = documentStore.lookupDocument("testDocument")
-        Assert.assertNotNull(document)
-        Assert.assertEquals("testDocument", document!!.name)
-        Assert.assertNull(documentStore.lookupDocument("nonExistingDocument"))
+        val document2 = documentStore.lookupDocument(document.identifier)
+        Assert.assertSame(document2, document)
 
-        // Check creating a document with an existing name overwrites the existing one
-        document = documentStore.createDocument(
-            "testDocument"
-        )
-        documentStore.addDocument(document)
-        Assert.assertEquals("testDocument", document.name)
-        document = documentStore.lookupDocument("testDocument")
-        Assert.assertNotNull(document)
-        Assert.assertEquals("testDocument", document!!.name)
-        documentStore.deleteDocument("testDocument")
-        Assert.assertNull(documentStore.lookupDocument("testDocument"))
+        Assert.assertNull(documentStore.lookupDocument("nonExistingDocument"))
     }
 }

@@ -141,18 +141,18 @@ fun createDrivingPrivilegesHtml(encodedElementValue: ByteArray): String {
     return htmlDisplayValue
 }
 
-fun Document.renderDocumentDetails(
+suspend fun Document.renderDocumentDetails(
     context: Context,
     documentTypeRepository: DocumentTypeRepository
 ): DocumentDetails {
     // TODO: maybe use DocumentConfiguration instead of pulling data out of a certified credential.
 
-    if (certifiedCredentials.size == 0) {
+    val certifiedCredentials = getCertifiedCredentials()
+
+    if (certifiedCredentials.isEmpty()) {
         return DocumentDetails(mapOf())
     }
-    val credential = certifiedCredentials[0]
-
-    return when (credential) {
+    return when (val credential = certifiedCredentials[0]) {
         is MdocCredential -> {
             renderDocumentDetailsForMdoc(context, documentTypeRepository, credential)
         }
